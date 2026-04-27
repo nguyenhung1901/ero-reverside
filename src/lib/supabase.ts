@@ -1,0 +1,23 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn('Thiếu VITE_SUPABASE_URL hoặc VITE_SUPABASE_ANON_KEY. Hãy tạo file .env ở thư mục frontend.');
+}
+
+export const supabase = createClient(
+  supabaseUrl || 'https://example.supabase.co',
+  supabaseAnonKey || 'public-anon-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+  },
+);
+
+export const ERO_PROJECT_ID = 1;
+export const ERO_PROJECT_SLUG = 'ero-riverside';
