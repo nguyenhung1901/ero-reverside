@@ -282,6 +282,88 @@ function buildStorageObjectPath(kind: string, fileName: string) {
   return `${ERO_PROJECT_SLUG}/${kind}/${yyyy}/${mm}/${Date.now()}-${sanitizeStorageFileName(fileName)}`;
 }
 
+
+type StorageObjectRef = {
+  bucket: string;
+  objectPath: string;
+};
+
+function extractStorageObjectRef(row: any): StorageObjectRef | null {
+  if (row?.storage_bucket && row?.storage_object_path) {
+    return {
+      bucket: row.storage_bucket,
+      objectPath: row.storage_object_path,
+    };
+  }
+
+  const rawUrl = typeof row?.url === 'string' ? row.url.trim() : '';
+  if (!rawUrl) return null;
+
+  if (!/^https?:\/\//i.test(rawUrl) && rawUrl.includes('/')) {
+    const inferredBucket = row?.visibility === 'private' ? 'ero-private' : 'ero-public';
+    return { bucket: inferredBucket, objectPath: rawUrl.replace(/^\/+/, '') };
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    const marker = '/storage/v1/object/';
+    const markerIndex = parsed.pathname.indexOf(marker);
+    if (markerIndex < 0) return null;
+
+    const objectPart = parsed.pathname.slice(markerIndex + marker.length);
+    const segments = objectPart.split('/').filter(Boolean);
+    if (segments[0] === 'public' || segments[0] === 'sign') {
+      const bucket = segments[1];
+      const objectPath = segments.slice(2).map(decodeURIComponent).join('/');
+      if ((bucket === 'ero-public' || bucket === 'ero-private') && objectPath) {
+        return { bucket, objectPath };
+      }
+    }
+  } catch {
+    // URL ngoài hoặc dữ liệu cũ không đủ thông tin storage.
+  }
+
+  return null;
+}
+
+async function moveStorageObjectBetweenBuckets(params: {
+  oldBucket: string;
+  newBucket: string;
+  objectPath: string;
+  mimeType?: string | null;
+}) {
+  const { oldBucket, newBucket, objectPath, mimeType } = params;
+  if (oldBucket === newBucket) return;
+
+  const storageFromOldBucket: any = supabase.storage.from(oldBucket);
+  const { error: moveError } = await storageFromOldBucket.move(objectPath, objectPath, {
+    destinationBucket: newBucket,
+  });
+
+  if (!moveError) return;
+
+  // Fallback cho môi trường dùng storage-js cũ hoặc khi API move xuyên bucket lỗi.
+  const { data: blob, error: downloadError } = await supabase.storage.from(oldBucket).download(objectPath);
+  if (downloadError) {
+    throw new Error(`Không thể đọc file cũ để đổi quyền truy cập: ${downloadError.message || moveError.message}`);
+  }
+
+  // Nếu lần chuyển trước để lại file trùng ở bucket đích, xóa bản đích rồi upload lại.
+  await supabase.storage.from(newBucket).remove([objectPath]);
+
+  const { error: uploadError } = await supabase.storage
+    .from(newBucket)
+    .upload(objectPath, blob, { contentType: mimeType || undefined, upsert: false });
+  if (uploadError) throw new Error(`Không thể đưa file sang bucket mới: ${uploadError.message}`);
+
+  const { error: removeError } = await supabase.storage.from(oldBucket).remove([objectPath]);
+  if (removeError) {
+    // Nếu không xóa được file cũ, phải báo lỗi để tránh hiểu nhầm là media đã riêng tư thật sự.
+    await supabase.storage.from(newBucket).remove([objectPath]);
+    throw new Error(`Đã copy sang bucket mới nhưng không xóa được file ở bucket cũ: ${removeError.message}`);
+  }
+}
+
 async function resolveStorageUrl(bucket: string | null | undefined, objectPath: string | null | undefined, visibility: MediaVisibility) {
   if (!bucket || !objectPath) return null;
   if (visibility === 'public') {
@@ -1040,43 +1122,45 @@ export function useCmsUpdateMedia(options?: MutationWrapper<any, { id: number; d
       if (fetchError) throw new Error(fetchError.message);
       if (!existing) throw new Error('Không tìm thấy media');
 
-      const nextVisibility: MediaVisibility = data.visibility === 'public' ? 'public' : data.visibility === 'private' ? 'private' : existing.visibility;
+      const nextVisibility: MediaVisibility = data.visibility === 'public'
+        ? 'public'
+        : data.visibility === 'private'
+          ? 'private'
+          : existing.visibility;
       const nextBucket = nextVisibility === 'public' ? 'ero-public' : 'ero-private';
-      let storageBucket: string | null = existing.storage_bucket;
-      let storageObjectPath: string | null = existing.storage_object_path;
+      const storageRef = extractStorageObjectRef(existing);
+      const hasStorageFile = !!storageRef;
+
+      let storageBucket: string | null = storageRef?.bucket || existing.storage_bucket || null;
+      let storageObjectPath: string | null = storageRef?.objectPath || existing.storage_object_path || null;
       let url: string | null = existing.url;
-      const hasStorageFile = !!(existing.storage_bucket && existing.storage_object_path);
 
       if (hasStorageFile && nextVisibility !== existing.visibility) {
-        const oldBucket = existing.storage_bucket;
-        const objectPath = existing.storage_object_path;
-        const { data: blob, error: downloadError } = await supabase.storage.from(oldBucket).download(objectPath);
-        if (downloadError) throw new Error(`Không thể đọc file cũ để đổi quyền truy cập: ${downloadError.message}`);
+        const oldBucket = storageRef!.bucket;
+        const objectPath = storageRef!.objectPath;
 
-        const { error: uploadError } = await supabase.storage
-          .from(nextBucket)
-          .upload(objectPath, blob, { contentType: existing.mime_type || undefined, upsert: true });
-        if (uploadError) throw new Error(`Không thể chuyển file sang bucket mới: ${uploadError.message}`);
+        await moveStorageObjectBetweenBuckets({
+          oldBucket,
+          newBucket: nextBucket,
+          objectPath,
+          mimeType: existing.mime_type,
+        });
 
         storageBucket = nextBucket;
         storageObjectPath = objectPath;
         url = nextVisibility === 'public'
           ? supabase.storage.from(nextBucket).getPublicUrl(objectPath).data.publicUrl
           : objectPath;
-
-        if (oldBucket !== nextBucket) {
-          try {
-            await supabase.storage.from(oldBucket).remove([objectPath]);
-          } catch {
-            // Không chặn cập nhật nếu xóa file cũ lỗi, vì file mới và dữ liệu đã được chuyển thành công.
-          }
-        }
       } else if (hasStorageFile) {
+        storageBucket = storageRef!.bucket;
+        storageObjectPath = storageRef!.objectPath;
         url = nextVisibility === 'public'
-          ? supabase.storage.from(storageBucket!).getPublicUrl(storageObjectPath!).data.publicUrl
+          ? supabase.storage.from(storageBucket).getPublicUrl(storageObjectPath).data.publicUrl
           : storageObjectPath;
       } else if (data.externalUrl !== undefined) {
         url = cleanOptionalText(data.externalUrl) || existing.url;
+      } else if (nextVisibility !== existing.visibility) {
+        throw new Error('Media này chưa có storage_bucket/storage_object_path nên không thể chuyển bucket. Hãy tải lại file lên Storage hoặc cập nhật metadata storage trước.');
       }
 
       const payload: any = {
