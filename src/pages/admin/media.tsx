@@ -199,13 +199,12 @@ export default function AdminMedia() {
           <Select onValueChange={field.onChange} value={field.value}>
             <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
             <SelectContent>
-              <SelectItem value="public">Công khai — hiển thị trên website</SelectItem>
-              <SelectItem value="private">Riêng tư — chỉ quản trị xem được</SelectItem>
+              <SelectItem value="public">Công khai - hiển thị trên website</SelectItem>
+              <SelectItem value="private">Riêng tư - chỉ quản trị xem được</SelectItem>
             </SelectContent>
           </Select>
           {isEditingStorageFile && (
             <p className="text-xs text-gray-500 mt-1">
-              Khi đổi công khai/riêng tư, hệ thống sẽ tự chuyển file giữa bucket public và private.
             </p>
           )}
         </FormItem>
