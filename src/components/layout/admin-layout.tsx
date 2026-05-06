@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useGetAdminMe, useAdminLogout } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
+import { useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 
@@ -20,24 +21,29 @@ const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function AdminLayout({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
-  const { data: admin, isLoading, isError } = useGetAdminMe();
+  const { data: admin, isLoading, isFetching, isError } = useGetAdminMe();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const lastActivityRef = useRef(Date.now());
   const timedOutRef = useRef(false);
 
   const logoutMutation = useAdminLogout({
     mutation: {
       onSuccess: () => {
+        queryClient.setQueryData(["/api/v1/admin/me"], null);
+        queryClient.removeQueries({ queryKey: ["/api/v1/admin/me"] });
         setLocation("/admin/login");
       }
     }
   });
 
+  const isCheckingAuth = isLoading || (!admin && isFetching);
+
   useEffect(() => {
-    if (!isLoading && (isError || !admin)) {
+    if (!isCheckingAuth && (isError || !admin)) {
       setLocation("/admin/login");
     }
-  }, [isLoading, isError, admin, setLocation]);
+  }, [isCheckingAuth, isError, admin, setLocation]);
 
   useEffect(() => {
     if (!admin) return;
@@ -72,7 +78,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     };
   }, [admin, logoutMutation, toast]);
 
-  if (isLoading) {
+  if (isCheckingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>

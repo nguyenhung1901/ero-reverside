@@ -55,7 +55,7 @@ export default function AboutPage() {
     <PublicLayout>
       <div className="bg-primary text-white py-16 text-center">
         <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">Tổng Quan Dự Án</h1>
-        <p className="text-gray-300 max-w-2xl mx-auto">{project?.name || "ERO Riverside"} – dữ liệu hiển thị từ Supabase</p>
+        <p className="text-gray-300 max-w-2xl mx-auto">{project?.name || "ERO Riverside"} – không gian sống sinh thái ven sông</p>
       </div>
 
       <div className="container mx-auto px-4 py-16 space-y-24">
@@ -77,7 +77,7 @@ export default function AboutPage() {
               <h3 className="font-display font-bold text-xl text-primary mb-4 flex items-center gap-2"><Landmark className="w-5 h-5 text-accent" /> Ranh giới địa lý</h3>
               <div className="space-y-3">
                 {(boundaries.length ? boundaries : [
-                  { dir: "Dữ liệu", desc: "Chưa có ranh giới trong project_contents" },
+                  { dir: "Thông tin", desc: "Ranh giới dự án đang được cập nhật" },
                 ]).map((item: any, index: number) => (
                   <div key={`${item.dir || item.label}-${index}`} className="flex items-start gap-3 bg-gray-50 p-4 border-l-4 border-accent">
                     <ChevronRight className="w-4 h-4 text-accent shrink-0 mt-0.5" />
@@ -91,7 +91,7 @@ export default function AboutPage() {
 
         {housing.length > 0 && (
           <section>
-            <SectionHeading title="Danh Mục Sản Phẩm" subtitle="Housing portfolio từ project_contents" />
+            <SectionHeading title="Danh Mục Sản Phẩm" subtitle="Các dòng sản phẩm thấp tầng tiêu biểu" />
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mt-8">
               {housing.map((h: any, i: number) => (
                 <motion.div key={`${h.code || h.name}-${i}`} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} viewport={{ once: true }} className="bg-white luxury-shadow border-t-4 border-accent overflow-hidden">
@@ -132,7 +132,7 @@ export default function AboutPage() {
 
         {amenities.length > 0 && (
           <section>
-            <SectionHeading title="Hệ Thống Tiện Ích" subtitle="Dữ liệu tiện ích từ Supabase" />
+            <SectionHeading title="Hệ Thống Tiện Ích" subtitle="Chuỗi tiện ích nội khu đồng bộ" />
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-8">
               {amenities.map((a: any, i: number) => (
                 <motion.div key={`${a.name || a.title}-${i}`} initial={{ opacity: 0, x: -10 }} whileInView={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }} viewport={{ once: true }} className="bg-white p-5 luxury-shadow flex gap-4 items-start border-l-4 border-accent">

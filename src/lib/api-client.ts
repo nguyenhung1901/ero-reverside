@@ -66,6 +66,7 @@ type MediaItem = {
   url: string;
   rawUrl?: string | null;
   thumbnailUrl?: string | null;
+  rawThumbnailUrl?: string | null;
   isPublic: boolean;
   storageBucket?: string | null;
   storageObjectPath?: string | null;
@@ -306,6 +307,7 @@ async function resolveMediaRow(row: any): Promise<MediaItem> {
     url: resolvedUrl || row.url || '',
     rawUrl: row.url,
     thumbnailUrl: resolvedThumb || undefined,
+    rawThumbnailUrl: row.thumbnail_url,
     isPublic: row.visibility === 'public',
     storageBucket: row.storage_bucket,
     storageObjectPath: row.storage_object_path,
@@ -439,6 +441,7 @@ function mapMedia(row: any): MediaItem {
     url: row.url,
     rawUrl: row.url,
     thumbnailUrl: row.thumbnail_url,
+    rawThumbnailUrl: row.thumbnail_url,
     isPublic: row.visibility === 'public',
     storageBucket: row.storage_bucket,
     storageObjectPath: row.storage_object_path,
@@ -494,16 +497,11 @@ function mapDataExport(row: any): DataExport {
   };
 }
 
-async function getCurrentProfile(): Promise<Profile | null> {
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError) throw new Error(sessionError.message);
-  const session = sessionData.session;
-  if (!session?.user) return null;
-
+async function fetchProfileByUserId(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, username, email, full_name, role, status, created_at, last_login_at')
-    .eq('id', session.user.id)
+    .eq('id', userId)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
@@ -514,6 +512,15 @@ async function getCurrentProfile(): Promise<Profile | null> {
     throw new Error('Tài khoản đã bị khóa');
   }
   return profile;
+}
+
+async function getCurrentProfile(): Promise<Profile | null> {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message);
+  const session = sessionData.session;
+  if (!session?.user) return null;
+
+  return fetchProfileByUserId(session.user.id);
 }
 
 async function fetchProjectOverview(projectSlug = ERO_PROJECT_SLUG) {
@@ -746,7 +753,9 @@ export function useAdminLogin(options?: MutationWrapper<any, { data: { identifie
         password: data.password,
       });
       if (error) throw new Error(error.message);
-      const profile = await getCurrentProfile();
+      const userId = signInData.user?.id;
+      if (!userId) throw new Error('Không thể xác thực tài khoản quản trị');
+      const profile = await fetchProfileByUserId(userId);
       if (!profile) throw new Error('Không thể tải hồ sơ quản trị');
       if (profile.role !== 'admin' && profile.role !== 'editor') {
         await supabase.auth.signOut();
@@ -1009,6 +1018,89 @@ export function useCmsCreateMedia(options?: MutationWrapper<any, { data: any }>)
         }
         throw err;
       }
+    },
+    ...(options?.mutation || {}),
+  });
+}
+
+function cleanOptionalText(value: unknown) {
+  if (typeof value !== 'string') return value === null ? null : undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function useCmsUpdateMedia(options?: MutationWrapper<any, { id: number; data: any }>) {
+  return useMutation({
+    mutationFn: async ({ id, data }) => {
+      const { data: existing, error: fetchError } = await supabase
+        .from('media_assets')
+        .select('id, title, description, category, media_type, visibility, url, thumbnail_url, storage_bucket, storage_object_path, mime_type, file_size_bytes, created_at')
+        .eq('id', id)
+        .single();
+      if (fetchError) throw new Error(fetchError.message);
+      if (!existing) throw new Error('Không tìm thấy media');
+
+      const nextVisibility: MediaVisibility = data.visibility === 'public' ? 'public' : data.visibility === 'private' ? 'private' : existing.visibility;
+      const nextBucket = nextVisibility === 'public' ? 'ero-public' : 'ero-private';
+      let storageBucket: string | null = existing.storage_bucket;
+      let storageObjectPath: string | null = existing.storage_object_path;
+      let url: string | null = existing.url;
+      const hasStorageFile = !!(existing.storage_bucket && existing.storage_object_path);
+
+      if (hasStorageFile && nextVisibility !== existing.visibility) {
+        const oldBucket = existing.storage_bucket;
+        const objectPath = existing.storage_object_path;
+        const { data: blob, error: downloadError } = await supabase.storage.from(oldBucket).download(objectPath);
+        if (downloadError) throw new Error(`Không thể đọc file cũ để đổi quyền truy cập: ${downloadError.message}`);
+
+        const { error: uploadError } = await supabase.storage
+          .from(nextBucket)
+          .upload(objectPath, blob, { contentType: existing.mime_type || undefined, upsert: true });
+        if (uploadError) throw new Error(`Không thể chuyển file sang bucket mới: ${uploadError.message}`);
+
+        storageBucket = nextBucket;
+        storageObjectPath = objectPath;
+        url = nextVisibility === 'public'
+          ? supabase.storage.from(nextBucket).getPublicUrl(objectPath).data.publicUrl
+          : objectPath;
+
+        if (oldBucket !== nextBucket) {
+          try {
+            await supabase.storage.from(oldBucket).remove([objectPath]);
+          } catch {
+            // Không chặn cập nhật nếu xóa file cũ lỗi, vì file mới và dữ liệu đã được chuyển thành công.
+          }
+        }
+      } else if (hasStorageFile) {
+        url = nextVisibility === 'public'
+          ? supabase.storage.from(storageBucket!).getPublicUrl(storageObjectPath!).data.publicUrl
+          : storageObjectPath;
+      } else if (data.externalUrl !== undefined) {
+        url = cleanOptionalText(data.externalUrl) || existing.url;
+      }
+
+      const payload: any = {
+        title: data.title !== undefined ? data.title : existing.title,
+        description: data.description !== undefined ? cleanOptionalText(data.description) : existing.description,
+        category: data.category !== undefined ? cleanOptionalText(data.category) : existing.category,
+        media_type: data.type !== undefined ? data.type : existing.media_type,
+        visibility: nextVisibility,
+        url,
+        thumbnail_url: data.thumbnailUrl !== undefined ? cleanOptionalText(data.thumbnailUrl) : existing.thumbnail_url,
+        storage_bucket: storageBucket,
+        storage_object_path: storageObjectPath,
+      };
+
+      if (hasStorageFile && payload.media_type === 'image') {
+        payload.thumbnail_url = nextVisibility === 'public' ? url : null;
+      }
+      if (hasStorageFile && payload.media_type === 'video' && data.thumbnailUrl === undefined) {
+        const oldAutoThumbnail = !existing.thumbnail_url || existing.thumbnail_url === existing.url || existing.thumbnail_url === existing.storage_object_path;
+        if (oldAutoThumbnail) payload.thumbnail_url = nextVisibility === 'public' ? url : null;
+      }
+
+      const result = await supabase.from('media_assets').update(payload).eq('id', id).select('*').single();
+      return requireData(result.data, result.error);
     },
     ...(options?.mutation || {}),
   });

@@ -193,17 +193,14 @@ export function PublicLayout({ children }: { children: ReactNode }) {
                 Đăng ký nhận tin
                 <span className="absolute -bottom-2 left-0 w-1/2 h-0.5 bg-accent"></span>
               </h4>
-              <p className="text-gray-400 text-sm mb-4">Để lại email để nhận thông tin mới nhất về dự án và các chính sách ưu đãi.</p>
-              <div className="flex">
-                <input 
-                  type="email" 
-                  placeholder="Email của bạn" 
-                  className="bg-white/10 border border-white/20 text-white px-4 py-2 w-full focus:outline-none focus:border-accent text-sm"
-                />
-                <button className="bg-accent hover:bg-accent/90 text-primary px-4 py-2 transition-colors">
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
+              <p className="text-gray-400 text-sm mb-4">Nhận bảng giá, chính sách ưu đãi và lịch tham quan nhà mẫu mới nhất.</p>
+              <Link
+                href="/register"
+                className="group flex items-center justify-between bg-white/10 border border-white/20 px-4 py-3 text-sm font-semibold text-white hover:bg-accent hover:text-primary hover:border-accent transition-colors"
+              >
+                <span>Đăng ký nhận thông tin</span>
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </Link>
             </div>
           </div>
 

@@ -1,23 +1,27 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAdminLogin } from "@/lib/api-client";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Lock, Mail } from "lucide-react";
 
 export default function AdminLogin() {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   const loginMutation = useAdminLogin({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (profile) => {
+        queryClient.setQueryData(["/api/v1/admin/me"], profile);
+        queryClient.invalidateQueries({ queryKey: ["/api/v1/admin/me"] });
         setLocation("/admin");
       },
       onError: (error) => {
-        setError("Thông tin đăng nhập không hợp lệ");
+        setError(error.message || "Thông tin đăng nhập không hợp lệ");
       }
     }
   });

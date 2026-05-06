@@ -31,7 +31,7 @@ export default function Home() {
     { label: "Pháp lý", value: project?.legalStatus || "Đang cập nhật" },
   ];
   const identityItems = project?.identityItems?.length ? project.identityItems : [
-    "Dữ liệu tổng quan được quản trị từ Supabase CMS",
+    "Vị trí ven sông giàu tiềm năng, kết nối thuận tiện tới trung tâm khu vực",
   ].map((text) => ({ title: text }));
   const amenities = project?.amenities?.length ? project.amenities.slice(0, 4) : [
     { name: "Công viên trung tâm", desc: "Không gian xanh nội khu" },
@@ -55,7 +55,7 @@ export default function Home() {
               {project?.name || "ERO Riverside"}
             </h1>
             <p className="text-gray-200 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-light">
-              {project?.shortDescription || project?.description || "Nội dung dự án được đồng bộ từ Supabase backend."}
+              {project?.shortDescription || project?.description || "Khu đô thị sinh thái ven sông với không gian sống xanh, tiện ích đồng bộ và tiềm năng gia tăng giá trị bền vững."}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/register"><Button variant="outline" className="border-white text-white hover:bg-white hover:text-primary text-base px-8 py-6 rounded-none uppercase tracking-wider bg-transparent transition-all duration-300 w-full sm:w-auto">Nhận Báo Giá</Button></Link>
@@ -88,7 +88,7 @@ export default function Home() {
             <div className="lg:w-1/2">
               <SectionHeading title="Tầm Nhìn & Vị Thế" subtitle="Tổng quan dự án" align="left" />
               <div className="space-y-6 text-gray-600 leading-relaxed">
-                <p>{project?.description || project?.shortDescription || "Thông tin tổng quan dự án được lấy từ bảng projects và project_contents trên Supabase."}</p>
+                <p>{project?.description || project?.shortDescription || "ERO Riverside kiến tạo chuẩn sống sinh thái hiện đại, hài hòa giữa cảnh quan ven sông, tiện ích nội khu và kết nối đô thị thuận tiện."}</p>
                 <ul className="space-y-3 mt-8">
                   {identityItems.slice(0, 4).map((item: any, i: number) => (
                     <li key={i} className="flex items-center gap-3">
@@ -106,7 +106,7 @@ export default function Home() {
       <section className="py-24 bg-white">
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-end mb-12">
-            <SectionHeading title="Sản Phẩm Nổi Bật" subtitle="Dữ liệu từ Supabase" align="left" className="mb-0" />
+            <SectionHeading title="Sản Phẩm Nổi Bật" subtitle="Những lựa chọn an cư và đầu tư đáng chú ý" align="left" className="mb-0" />
             <Link href="/products" className="hidden md:flex items-center gap-2 text-accent font-semibold hover:text-primary transition-colors uppercase tracking-wider text-sm">Xem tất cả <ArrowRight className="w-4 h-4" /></Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -134,7 +134,7 @@ export default function Home() {
 
       <section className="py-24 bg-gray-50">
         <div className="container mx-auto px-4">
-          <SectionHeading title="Tiện Ích Nổi Bật" subtitle="Dữ liệu tiện ích từ project_contents" />
+          <SectionHeading title="Tiện Ích Nổi Bật" subtitle="Không gian sống xanh và tiện nghi đồng bộ" />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
             {amenities.slice(0, 2).map((item: any, index: number) => (
               <div key={`${item.name || item.title}-${index}`} className="relative h-96 overflow-hidden luxury-shadow group">
