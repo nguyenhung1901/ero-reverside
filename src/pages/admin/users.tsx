@@ -18,6 +18,7 @@ export default function AdminUsers() {
   const { data, isLoading } = useCmsListUsers();
   const { data: me } = useGetAdminMe();
 
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -60,6 +61,7 @@ export default function AdminUsers() {
     mutation: {
       onSuccess: () => {
         setForm({ email: "", password: "", username: "", fullName: "", role: "editor" });
+        setShowCreateForm(false);
         refreshUsers();
         toast({ title: "Đã tạo tài khoản CMS mới" });
       },
@@ -78,6 +80,16 @@ export default function AdminUsers() {
     roleMut.mutate({ id, data: { role } });
   };
 
+  const resetCreateForm = () => {
+    setForm({ email: "", password: "", username: "", fullName: "", role: "editor" });
+  };
+
+  const handleCloseCreateForm = () => {
+    if (createMut.isPending) return;
+    resetCreateForm();
+    setShowCreateForm(false);
+  };
+
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     createMut.mutate({ data: form });
@@ -92,9 +104,6 @@ export default function AdminUsers() {
           <h1 className="text-2xl font-bold text-primary">Quản Lý Tài Khoản CMS</h1>
           <p className="text-sm text-gray-500 mt-1">Tổng số: {userCountLabel}</p>
         </div>
-        <Button variant="outline" className="rounded-none" onClick={refreshUsers}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Tải lại
-        </Button>
       </div>
 
       {!canManageUsers ? (
@@ -103,48 +112,67 @@ export default function AdminUsers() {
         </div>
       ) : (
         <>
-          <div className="bg-white border border-gray-200 p-6 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <UserPlus className="w-5 h-5 text-primary" />
-              <h2 className="text-lg font-semibold text-primary">Tạo tài khoản CMS mới</h2>
-            </div>
-
-            <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-2 gap-4" autoComplete="off">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Họ tên</label>
-                <Input value={form.fullName} onChange={(e) => setForm((prev) => ({ ...prev, fullName: e.target.value }))} required />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Tên đăng nhập</label>
-                <Input value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))} required />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Email</label>
-                <Input type="email" value={form.email} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))} required />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Mật khẩu</label>
-                <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} required minLength={8} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Vai trò</label>
-                <Select value={form.role} onValueChange={(value: CmsRole) => setForm((prev) => ({ ...prev, role: value }))}>
-                  <SelectTrigger className="rounded-none">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="editor">Editor</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-end">
-                <Button type="submit" className="rounded-none" disabled={createMut.isPending}>
-                  {createMut.isPending ? "Đang tạo..." : "Tạo tài khoản"}
-                </Button>
-              </div>
-            </form>
+          <div className="mb-6 flex justify-end">
+            <Button
+              type="button"
+              className="rounded-none"
+              onClick={() => setShowCreateForm((prev) => !prev)}
+              aria-expanded={showCreateForm}
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              {showCreateForm ? "Đóng" : "Thêm tài khoản"}
+            </Button>
           </div>
+
+          {showCreateForm && (
+            <div className="bg-white border border-gray-200 p-6 mb-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg font-semibold text-primary">Tạo tài khoản CMS mới</h2>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-2 gap-4" autoComplete="off">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Họ tên</label>
+                  <Input value={form.fullName} onChange={(e) => setForm((prev) => ({ ...prev, fullName: e.target.value }))} required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Tên đăng nhập</label>
+                  <Input value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))} required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Email</label>
+                  <Input type="email" value={form.email} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))} required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Mật khẩu</label>
+                  <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} required minLength={8} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Vai trò</label>
+                  <Select value={form.role} onValueChange={(value: CmsRole) => setForm((prev) => ({ ...prev, role: value }))}>
+                    <SelectTrigger className="rounded-none">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="editor">Editor</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end gap-3">
+                  <Button type="submit" className="rounded-none" disabled={createMut.isPending}>
+                    {createMut.isPending ? "Đang tạo..." : "Tạo tài khoản"}
+                  </Button>
+                  <Button type="button" variant="outline" className="rounded-none" onClick={handleCloseCreateForm} disabled={createMut.isPending}>
+                    Hủy
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
 
           <div className="bg-white border border-gray-200">
             <Table>

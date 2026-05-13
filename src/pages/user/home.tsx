@@ -14,6 +14,38 @@ function fmtArea(ha?: number | null, m2?: number | null) {
   return "Đang cập nhật";
 }
 
+function normalizeLabel(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .trim();
+}
+
+function buildIdentityItems(project: any) {
+  const defaultItems = [
+    { label: "Tên dự án", value: project?.name || "ERO Riverside" },
+    { label: "Chủ đầu tư", value: project?.investorName || "Đang cập nhật" },
+    { label: "Vị trí", value: project?.location || "Đang cập nhật" },
+    { label: "Diện tích tổng quy hoạch", value: fmtArea(project?.totalAreaHa, project?.totalAreaM2) },
+  ];
+
+  const defaultByLabel = new Map(defaultItems.map((item) => [normalizeLabel(item.label), item.value]));
+  const source = project?.identityItems?.length ? project.identityItems.slice(0, 4) : defaultItems;
+
+  return source.map((item: any) => {
+    if (typeof item === "string") {
+      return { label: "", value: item };
+    }
+
+    const label = item?.label || item?.title || item?.name || "";
+    const value = item?.value || item?.desc || item?.description || item?.content || defaultByLabel.get(normalizeLabel(label)) || "Đang cập nhật";
+
+    return { label, value };
+  });
+}
+
 export default function Home() {
   const { data: project } = useProjectOverview("ero-riverside");
   const { data: productsData } = useListProducts({ limit: 3 } as any);
@@ -30,9 +62,7 @@ export default function Home() {
     { label: "Số lượng sản phẩm", value: project?.totalLowriseUnits ? `${project.totalLowriseUnits}+ căn` : "Đang cập nhật" },
     { label: "Pháp lý", value: project?.legalStatus || "Đang cập nhật" },
   ];
-  const identityItems = project?.identityItems?.length ? project.identityItems : [
-    "Vị trí ven sông giàu tiềm năng, kết nối thuận tiện tới trung tâm khu vực",
-  ].map((text) => ({ title: text }));
+  const identityItems = buildIdentityItems(project);
   const amenities = project?.amenities?.length ? project.amenities.slice(0, 4) : [
     { name: "Công viên trung tâm", desc: "Không gian xanh nội khu" },
     { name: "Bể bơi & Clubhouse", desc: "Tiện ích cư dân" },
@@ -91,9 +121,11 @@ export default function Home() {
                 <p>{project?.description || project?.shortDescription || "ERO Riverside kiến tạo chuẩn sống sinh thái hiện đại, hài hòa giữa cảnh quan ven sông, tiện ích nội khu và kết nối đô thị thuận tiện."}</p>
                 <ul className="space-y-3 mt-8">
                   {identityItems.slice(0, 4).map((item: any, i: number) => (
-                    <li key={i} className="flex items-center gap-3">
-                      <ShieldCheck className="w-5 h-5 text-accent shrink-0" />
-                      <span className="text-primary font-medium">{item.title || item.label || item.value || item}</span>
+                    <li key={`${item.label || item.value}-${i}`} className="flex items-start gap-3">
+                      <ShieldCheck className="w-5 h-5 text-accent shrink-0 mt-0.5" />
+                      <span className="text-primary font-medium">
+                        {item.label ? <><span className="font-bold">{item.label}:</span> {item.value}</> : item.value}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -138,7 +170,7 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
             {amenities.slice(0, 2).map((item: any, index: number) => (
               <div key={`${item.name || item.title}-${index}`} className="relative h-96 overflow-hidden luxury-shadow group">
-                <img src={amenityImages[index]?.url || (index === 0 ? `${import.meta.env.BASE_URL}images/amenity-pool.png` : `${import.meta.env.BASE_URL}images/amenity-clubhouse.png`)} alt={item.name || item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                <img src={amenityImages[index]?.url || (index === 0 ? `${import.meta.env.BASE_URL}images/amenity-pool.png` : `${import.meta.env.BASE_URL}images/amenity-park.png`)} alt={item.name || item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                 <div className="absolute inset-0 bg-gradient-to-t from-primary/90 to-transparent flex flex-col justify-end p-8">
                   {index === 0 ? <Droplets className="w-10 h-10 text-accent mb-4" /> : <TreePine className="w-10 h-10 text-accent mb-4" />}
                   <h3 className="font-display text-3xl font-bold text-white mb-2">{item.name || item.title}</h3>
