@@ -135,7 +135,7 @@ const MediaFields = ({ control, isEditingStorageFile = false }: { control: Contr
     )} />
     <FormField control={control} name="thumbnailUrl" render={({ field }) => (
       <FormItem>
-        <FormLabel>Thumbnail video (tùy chọn)</FormLabel>
+        <FormLabel>Liên kết</FormLabel>
         <FormControl><ImeSafeInput placeholder="https://..." {...field} /></FormControl>
       </FormItem>
     )} />
