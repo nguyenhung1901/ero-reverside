@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import * as React from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/layout/admin-layout";
 import { useListMedia, useCmsCreateMedia, useCmsUpdateMedia, useCmsDeleteMedia } from "@/lib/api-client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Play, Eye, EyeOff, FileVideo, Image as ImageIcon, Pencil, Repeat2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { useForm } from "react-hook-form";
+import { Control, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -33,6 +34,120 @@ const VISIBILITY_LABELS: Record<string, { label: string; icon: any; class: strin
 
 const CATEGORY_OPTIONS = ["Phối cảnh", "Mặt bằng", "Tiện ích", "Thực tế", "Video"];
 const isLikelyVideoFile = (value?: string | null) => !!value && /\.(mp4|webm|ogg|mov)(\?|$)/i.test(value);
+
+type ImeSafeInputProps = Omit<React.ComponentProps<typeof Input>, "onChange"> & {
+  onChange?: (value: string) => void;
+};
+
+const ImeSafeInput = React.forwardRef<HTMLInputElement, ImeSafeInputProps>(
+  ({ value, onChange, onCompositionStart, onCompositionEnd, ...props }, ref) => {
+    const [innerValue, setInnerValue] = useState(String(value ?? ""));
+    const [isComposing, setIsComposing] = useState(false);
+
+    useEffect(() => {
+      if (!isComposing) {
+        setInnerValue(String(value ?? ""));
+      }
+    }, [value, isComposing]);
+
+    return (
+      <Input
+        {...props}
+        ref={ref}
+        value={innerValue}
+        onCompositionStart={(event) => {
+          setIsComposing(true);
+          onCompositionStart?.(event);
+        }}
+        onCompositionEnd={(event) => {
+          setIsComposing(false);
+          const nextValue = event.currentTarget.value;
+          setInnerValue(nextValue);
+          onChange?.(nextValue);
+          onCompositionEnd?.(event);
+        }}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setInnerValue(nextValue);
+          if (!isComposing) {
+            onChange?.(nextValue);
+          }
+        }}
+      />
+    );
+  }
+);
+ImeSafeInput.displayName = "ImeSafeInput";
+
+const MediaFields = ({ control, isEditingStorageFile = false }: { control: Control<MediaFormValues>; isEditingStorageFile?: boolean }) => (
+  <>
+    <FormField control={control} name="title" render={({ field }) => (
+      <FormItem>
+        <FormLabel>Tiêu đề</FormLabel>
+        <FormControl><ImeSafeInput {...field} /></FormControl>
+        <FormMessage />
+      </FormItem>
+    )} />
+    <div className="grid grid-cols-2 gap-4">
+      <FormField control={control} name="type" render={({ field }) => (
+        <FormItem>
+          <FormLabel>Loại</FormLabel>
+          <Select onValueChange={field.onChange} value={field.value}>
+            <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+            <SelectContent>
+              <SelectItem value="image">Hình ảnh</SelectItem>
+              <SelectItem value="video">Video</SelectItem>
+            </SelectContent>
+          </Select>
+        </FormItem>
+      )} />
+      <FormField control={control} name="category" render={({ field }) => (
+        <FormItem>
+          <FormLabel>Danh mục</FormLabel>
+          <Select onValueChange={field.onChange} value={field.value}>
+            <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+            <SelectContent>
+              {CATEGORY_OPTIONS.map((category) => (
+                <SelectItem key={category} value={category}>{category}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormItem>
+      )} />
+    </div>
+    <FormField control={control} name="visibility" render={({ field }) => (
+      <FormItem>
+        <FormLabel>Quyền truy cập</FormLabel>
+        <Select onValueChange={field.onChange} value={field.value}>
+          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+          <SelectContent>
+            <SelectItem value="public">Công khai - hiển thị trên website</SelectItem>
+            <SelectItem value="private">Riêng tư - chỉ quản trị xem được</SelectItem>
+          </SelectContent>
+        </Select>
+      </FormItem>
+    )} />
+    <FormField control={control} name="externalUrl" render={({ field }) => (
+      <FormItem>
+        <FormLabel>Đường dẫn ngoài {isEditingStorageFile ? "(không áp dụng với file đã tải lên)" : "(tùy chọn, dành cho video nhúng)"}</FormLabel>
+        <FormControl><ImeSafeInput placeholder="https://..." disabled={isEditingStorageFile} {...field} /></FormControl>
+      </FormItem>
+    )} />
+    <FormField control={control} name="thumbnailUrl" render={({ field }) => (
+      <FormItem>
+        <FormLabel>Thumbnail video (tùy chọn)</FormLabel>
+        <FormControl><ImeSafeInput placeholder="https://..." {...field} /></FormControl>
+      </FormItem>
+    )} />
+    <FormField control={control} name="description" render={({ field }) => (
+      <FormItem>
+        <FormLabel>Ghi chú</FormLabel>
+        <FormControl><ImeSafeInput {...field} /></FormControl>
+      </FormItem>
+    )} />
+  </>
+);
+
 
 export default function AdminMedia() {
   const [filterVisibility, setFilterVisibility] = useState("all");
@@ -160,72 +275,6 @@ export default function AdminMedia() {
       return visMatch && typeMatch;
     }) || [];
   }, [data?.media, filterVisibility, filterType]);
-
-  const MediaFields = ({ control, isEditingStorageFile = false }: { control: any; isEditingStorageFile?: boolean }) => (
-    <>
-      <FormField control={control} name="title" render={({ field }) => (
-        <FormItem><FormLabel>Tiêu đề</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-      )} />
-      <div className="grid grid-cols-2 gap-4">
-        <FormField control={control} name="type" render={({ field }) => (
-          <FormItem>
-            <FormLabel>Loại</FormLabel>
-            <Select onValueChange={field.onChange} value={field.value}>
-              <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-              <SelectContent>
-                <SelectItem value="image">Hình ảnh</SelectItem>
-                <SelectItem value="video">Video</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormItem>
-        )} />
-        <FormField control={control} name="category" render={({ field }) => (
-          <FormItem>
-            <FormLabel>Danh mục</FormLabel>
-            <Select onValueChange={field.onChange} value={field.value}>
-              <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-              <SelectContent>
-                {CATEGORY_OPTIONS.map((category) => (
-                  <SelectItem key={category} value={category}>{category}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormItem>
-        )} />
-      </div>
-      <FormField control={control} name="visibility" render={({ field }) => (
-        <FormItem>
-          <FormLabel>Quyền truy cập</FormLabel>
-          <Select onValueChange={field.onChange} value={field.value}>
-            <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-            <SelectContent>
-              <SelectItem value="public">Công khai - hiển thị trên website</SelectItem>
-              <SelectItem value="private">Riêng tư - chỉ quản trị xem được</SelectItem>
-            </SelectContent>
-          </Select>
-          {isEditingStorageFile && (
-            <p className="text-xs text-gray-500 mt-1">
-            </p>
-          )}
-        </FormItem>
-      )} />
-      <FormField control={control} name="externalUrl" render={({ field }) => (
-        <FormItem>
-          <FormLabel>Đường dẫn ngoài {isEditingStorageFile ? "(không áp dụng với file đã tải lên)" : "(tùy chọn, dành cho video nhúng)"}</FormLabel>
-          <FormControl><Input placeholder="https://..." disabled={isEditingStorageFile} {...field} /></FormControl>
-        </FormItem>
-      )} />
-      <FormField control={control} name="thumbnailUrl" render={({ field }) => (
-        <FormItem>
-          <FormLabel>Liên kết</FormLabel>
-          <FormControl><Input placeholder="https://..." {...field} /></FormControl>
-        </FormItem>
-      )} />
-      <FormField control={control} name="description" render={({ field }) => (
-        <FormItem><FormLabel>Ghi chú</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
-      )} />
-    </>
-  );
 
   return (
     <AdminLayout>
