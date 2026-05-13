@@ -217,7 +217,7 @@ export default function AdminMedia() {
       )} />
       <FormField control={control} name="thumbnailUrl" render={({ field }) => (
         <FormItem>
-          <FormLabel>Thumbnail video (tùy chọn)</FormLabel>
+          <FormLabel>Liên kết</FormLabel>
           <FormControl><Input placeholder="https://..." {...field} /></FormControl>
         </FormItem>
       )} />
