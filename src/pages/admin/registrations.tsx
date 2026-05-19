@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { AdminLayout } from "@/components/layout/admin-layout";
-import { useCmsListLeads, useCmsUpdateLeadStatus, useCmsDeleteLead, cmsExportLeads, useGetAdminMe } from "@/lib/api-client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCmsUpdateLeadStatus, useCmsDeleteLead, cmsExportLeads, useGetAdminMe } from "@/lib/api-client";
+import { cmsService } from "@/services/cmsService";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,11 +28,37 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function AdminRegistrations() {
   const [statusFilter, setStatusFilter] = useState("all");
+  // Thêm state phân trang
+  const [page, setPage] = useState<number>(1); 
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: me } = useGetAdminMe();
 
-  const { data, isLoading } = useCmsListLeads();
+  // Logic gọi API bảo mật qua cmsService
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/v1/cms/leads", page], 
+    queryFn: async () => {
+      const res = await cmsService.getLeads(page, 10); 
+      const rawData = res.data || [];
+      const mappedData = rawData.map((item: Record<string, any>) => ({
+        ...item, 
+        id: item.id,
+        createdAt: item.created_at || item.createdAt,
+        fullName: item.full_name || item.fullName,
+        phone: item.phone,
+        email: item.email,
+        interestCategory: item.interest_category || item.interestCategory,
+        sourceChannel: item.source_channel || item.sourceChannel,
+        currentStatus: item.status || item.current_status || item.currentStatus
+      }));
+
+      return {
+        registrations: mappedData,
+        total: res.count || 0
+      };
+    }
+  });
 
   const deleteMut = useCmsDeleteLead({
     mutation: {
@@ -56,18 +83,18 @@ export default function AdminRegistrations() {
   const summaryCounts = useMemo(() => {
     const registrations = data?.registrations || [];
     return {
-      new: registrations.filter((r) => r.currentStatus === "new").length,
-      contacted: registrations.filter((r) => r.currentStatus === "contacted").length,
-      qualified: registrations.filter((r) => r.currentStatus === "qualified").length,
-      converted: registrations.filter((r) => r.currentStatus === "converted").length,
-      closed: registrations.filter((r) => r.currentStatus === "closed").length,
+      new: registrations.filter((r: any) => r.currentStatus === "new").length,
+      contacted: registrations.filter((r: any) => r.currentStatus === "contacted").length,
+      qualified: registrations.filter((r: any) => r.currentStatus === "qualified").length,
+      converted: registrations.filter((r: any) => r.currentStatus === "converted").length,
+      closed: registrations.filter((r: any) => r.currentStatus === "closed").length,
     };
   }, [data?.registrations]);
 
   const filteredRegistrations = useMemo(() => {
     const registrations = data?.registrations || [];
     if (statusFilter === "all") return registrations;
-    return registrations.filter((r) => r.currentStatus === statusFilter);
+    return registrations.filter((r: any) => r.currentStatus === statusFilter);
   }, [data?.registrations, statusFilter]);
 
   const handleExport = async () => {
@@ -78,7 +105,7 @@ export default function AdminRegistrations() {
         const blob = new Blob([result as string], { type: "text/csv;charset=utf-8;" });
         const link = document.createElement("a");
         link.setAttribute("href", URL.createObjectURL(blob));
-        link.setAttribute("download", `khach-hang${statusFilter !== "all" ? `-${statusFilter}` : ""}-${new Date().toISOString().split("T")[0]}.csv`);
+        link.setAttribute("download", `khach-hang${statusFilter !== "all" ? `-${statusFilter}` : ""}-${new Date().toISOString().split("T")}.csv`);
         link.style.visibility = "hidden";
         document.body.appendChild(link);
         link.click();
@@ -156,10 +183,10 @@ export default function AdminRegistrations() {
           <TableBody>
             {isLoading ? (
               <TableRow><TableCell colSpan={8} className="text-center py-8">Đang tải...</TableCell></TableRow>
-            ) : filteredRegistrations.map((r) => (
+            ) : filteredRegistrations.map((r: any) => (
               <TableRow key={r.id}>
                 <TableCell className="text-xs text-gray-500 font-mono whitespace-nowrap">
-                  {format(new Date(r.createdAt), "dd/MM/yyyy HH:mm")}
+                  {r.createdAt ? format(new Date(r.createdAt), "dd/MM/yyyy HH:mm") : "N/A"}
                 </TableCell>
                 <TableCell className="font-medium text-primary">{r.fullName}</TableCell>
                 <TableCell className="font-mono text-sm">{r.phone}</TableCell>
@@ -197,6 +224,25 @@ export default function AdminRegistrations() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Nút điều hướng phân trang an toàn */}
+      <div className="flex justify-end items-center mt-4 gap-4 p-2">
+        <Button 
+          disabled={page === 1} 
+          onClick={() => setPage((old: number) => Math.max(old - 1, 1))} 
+          variant="outline"
+        >
+          Trang trước
+        </Button>
+        <span className="text-sm font-medium text-gray-700">Trang {page}</span>
+        <Button 
+          disabled={!data || !data.registrations || data.registrations.length < 10} 
+          onClick={() => setPage((old: number) => old + 1)} 
+          variant="outline"
+        >
+          Trang sau
+        </Button>
       </div>
     </AdminLayout>
   );
