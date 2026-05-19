@@ -48,11 +48,11 @@ export default function AdminRegistrations() {
         fullName: item.full_name || item.fullName,
         phone: item.phone,
         email: item.email,
-        interestCategory: item.interest_category || item.interestCategory,
+        interestCategory: item.need || item.interestCategory,
         sourceChannel: item.source_channel || item.sourceChannel,
         currentStatus: item.status || item.current_status || item.currentStatus
       }));
-
+      
       return {
         registrations: mappedData,
         total: res.count || 0
