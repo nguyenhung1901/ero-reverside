@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, Play, Eye, EyeOff, FileVideo, Image as ImageIcon, Pencil, Repeat2 } from "lucide-react";
+import { Plus, Trash2, Play, Eye, EyeOff, FileVideo, Image as ImageIcon, Pencil, Repeat2, Download, Maximize2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Control, useForm } from "react-hook-form";
 import { z } from "zod";
@@ -34,6 +34,49 @@ const VISIBILITY_LABELS: Record<string, { label: string; icon: any; class: strin
 
 const CATEGORY_OPTIONS = ["Phối cảnh", "Mặt bằng", "Tiện ích", "Thực tế", "Video"];
 const isLikelyVideoFile = (value?: string | null) => !!value && /\.(mp4|webm|ogg|mov)(\?|$)/i.test(value);
+const isExternalHttpUrl = (value?: string | null) => !!value && /^https?:\/\//i.test(value);
+
+function getFileExtension(media: any) {
+  const mime = String(media?.mimeType || "").toLowerCase();
+  if (mime.includes("png")) return "png";
+  if (mime.includes("webp")) return "webp";
+  if (mime.includes("gif")) return "gif";
+  if (mime.includes("svg")) return "svg";
+  if (mime.includes("mp4")) return "mp4";
+  if (mime.includes("webm")) return "webm";
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+
+  const source = String(media?.storageObjectPath || media?.rawUrl || media?.url || "");
+  const clean = source.split("?")[0].split("#")[0];
+  const match = clean.match(/\.([a-z0-9]+)$/i);
+  if (match?.[1]) return match[1].toLowerCase();
+  return media?.type === "video" ? "mp4" : "jpg";
+}
+
+function safeFileName(media: any) {
+  const base = String(media?.title || `media-${media?.id || "file"}`)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || `media-${media?.id || "file"}`;
+  return `${base}.${getFileExtension(media)}`;
+}
+
+function formatFileSize(value?: number | null) {
+  if (!value || Number.isNaN(Number(value))) return null;
+  const units = ["B", "KB", "MB", "GB"];
+  let size = Number(value);
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
 
 type ImeSafeInputProps = Omit<React.ComponentProps<typeof Input>, "onChange"> & {
   onChange?: (value: string) => void;
@@ -157,6 +200,7 @@ export default function AdminMedia() {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [editingMedia, setEditingMedia] = useState<any | null>(null);
+  const [previewMedia, setPreviewMedia] = useState<any | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const form = useForm<MediaFormValues>({
@@ -268,6 +312,44 @@ export default function AdminMedia() {
     updateMut.mutate({ id: media.id, data: { visibility: nextVisibility } });
   };
 
+  const downloadMedia = async (media: any) => {
+    const targetUrl = media?.url || media?.rawUrl || media?.thumbnailUrl;
+    if (!targetUrl) {
+      toast({ title: "Không tìm thấy đường dẫn để tải", variant: "destructive" });
+      return;
+    }
+
+    try {
+      if (isExternalHttpUrl(targetUrl)) {
+        const response = await fetch(targetUrl);
+        if (!response.ok) throw new Error("Không thể tải file từ đường dẫn hiện tại");
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = safeFileName(media);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+
+      const link = document.createElement("a");
+      link.href = targetUrl;
+      link.download = safeFileName(media);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error: any) {
+      toast({
+        title: "Không thể tải xuống",
+        description: error?.message || "Không thể tải file từ đường dẫn hiện tại.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const filteredMedia = useMemo(() => {
     return data?.media?.filter(m => {
       const visMatch = filterVisibility === "all" || m.visibility === filterVisibility;
@@ -366,11 +448,29 @@ export default function AdminMedia() {
                   <p className="text-white font-bold text-sm line-clamp-2">{m.title}</p>
                   <p className="text-accent text-xs mt-1">{m.category}</p>
                   <p className="text-gray-200 text-[11px] mt-2">{m.storageBucket ? `Storage: ${m.storageBucket}` : "Nguồn ngoài"}</p>
-                  <div className="mt-4 flex flex-col gap-2 w-full max-w-[150px]">
+                  <div className="mt-4 grid grid-cols-2 gap-2 w-full max-w-[230px]">
                     <Button
                       variant="secondary"
                       size="sm"
                       className="rounded-none"
+                      onClick={() => setPreviewMedia(m)}
+                      disabled={updateMut.isPending || deleteMut.isPending}
+                    >
+                      <Maximize2 className="w-4 h-4 mr-1" /> Xem
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="rounded-none"
+                      onClick={() => downloadMedia(m)}
+                      disabled={updateMut.isPending || deleteMut.isPending}
+                    >
+                      <Download className="w-4 h-4 mr-1" /> Tải
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-none bg-white/95 col-span-2"
                       onClick={() => openEditDialog(m)}
                       disabled={updateMut.isPending || deleteMut.isPending}
                     >
@@ -379,7 +479,7 @@ export default function AdminMedia() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="rounded-none bg-white/95"
+                      className="rounded-none bg-white/95 col-span-2"
                       onClick={() => toggleVisibility(m)}
                       disabled={updateMut.isPending || deleteMut.isPending}
                     >
@@ -388,7 +488,7 @@ export default function AdminMedia() {
                     <Button
                       variant="destructive"
                       size="sm"
-                      className="rounded-none"
+                      className="rounded-none col-span-2"
                       onClick={() => { if (confirm("Xóa media này?")) deleteMut.mutate({ id: m.id }); }}
                       disabled={updateMut.isPending || deleteMut.isPending}
                     >
@@ -406,6 +506,51 @@ export default function AdminMedia() {
           )}
         </div>
       )}
+
+      <Dialog open={!!previewMedia} onOpenChange={(open) => { if (!open) setPreviewMedia(null); }}>
+        <DialogContent className="rounded-none max-w-5xl max-h-[92vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {previewMedia?.type === "video" ? <FileVideo className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />}
+              {previewMedia?.title || "Xem media"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {previewMedia && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 border border-gray-200 max-h-[68vh] overflow-auto flex items-center justify-center">
+                {previewMedia.type === "video" && isLikelyVideoFile(previewMedia.url) ? (
+                  <video src={previewMedia.url} controls className="max-w-full max-h-[68vh] bg-black" />
+                ) : previewMedia.type === "image" || previewMedia.url ? (
+                  <img
+                    src={previewMedia.url || previewMedia.thumbnailUrl}
+                    alt={previewMedia.title || "Media"}
+                    className="max-w-full h-auto object-contain"
+                  />
+                ) : (
+                  <div className="py-20 text-center text-gray-500">Không có bản xem trước</div>
+                )}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                <div className="text-sm text-gray-600 space-y-1">
+                  <p><span className="font-semibold text-primary">Danh mục:</span> {previewMedia.category || "Chưa phân loại"}</p>
+                  <p><span className="font-semibold text-primary">Quyền truy cập:</span> {VISIBILITY_LABELS[previewMedia.visibility]?.label || previewMedia.visibility}</p>
+                  {previewMedia.storageBucket && <p><span className="font-semibold text-primary">Storage:</span> {previewMedia.storageBucket}</p>}
+                  {previewMedia.fileSizeBytes && <p><span className="font-semibold text-primary">Dung lượng:</span> {formatFileSize(previewMedia.fileSizeBytes)}</p>}
+                  {previewMedia.description && <p><span className="font-semibold text-primary">Ghi chú:</span> {previewMedia.description}</p>}
+                </div>
+
+                <div className="flex flex-wrap gap-2 md:justify-end">
+                  <Button type="button" className="rounded-none bg-primary" onClick={() => downloadMedia(previewMedia)}>
+                    <Download className="w-4 h-4 mr-2" /> Tải xuống
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editingMedia} onOpenChange={(open) => { if (!open) setEditingMedia(null); }}>
         <DialogContent className="rounded-none max-w-2xl">
