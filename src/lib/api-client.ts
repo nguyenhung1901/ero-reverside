@@ -21,6 +21,7 @@ type Profile = {
   status: AccountStatus;
   createdAt: string;
   lastLoginAt?: string | null;
+  mustChangePassword?: boolean;
 };
 
 type Category = {
@@ -207,7 +208,7 @@ async function resolveLoginEmail(identifier: string) {
   if (error) {
     throw new Error('Chưa bật đăng nhập bằng tên đăng nhập. Hãy chạy file supabase/sql-patches/enable-username-login.sql trên Supabase SQL Editor.');
   }
-  if (!data) throw new Error('Tên đăng nhập không tồn tại hoặc tài khoản đã bị khóa');
+  if (!data) throw new Error('Thông tin đăng nhập không hợp lệ.');
   return String(data);
 }
 
@@ -469,6 +470,7 @@ function mapProfile(row: any): Profile {
     status: row.status,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
+    mustChangePassword: Boolean(row.must_change_password),
   };
 }
 
@@ -582,7 +584,7 @@ function mapDataExport(row: any): DataExport {
 async function fetchProfileByUserId(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, email, full_name, role, status, created_at, last_login_at')
+    .select('id, username, email, full_name, role, status, created_at, last_login_at, must_change_password')
     .eq('id', userId)
     .maybeSingle();
 
@@ -736,7 +738,7 @@ async function fetchLeads(params?: any) {
 async function fetchUsers() {
   const { data, error, count } = await supabase
     .from('profiles')
-    .select('id, username, email, full_name, role, status, created_at, last_login_at', { count: 'exact' })
+    .select('id, username, email, full_name, role, status, created_at, last_login_at, must_change_password', { count: 'exact' })
     .order('created_at', { ascending: true });
 
   if (error) throw new Error(error.message);
@@ -826,35 +828,54 @@ export function useGetAdminMe() {
   });
 }
 
-export function useAdminLogin(options?: MutationWrapper<any, { data: { identifier: string; password: string } }>) {
+export function useAdminLogin(options?: MutationWrapper<any, { data: { identifier: string; password: string; captchaToken?: string | null } }>) {
   return useMutation({
-    mutationFn: async ({ data }: { data: { identifier: string; password: string } }) => {
-      const email = await resolveLoginEmail(data.identifier);
-      const { data: signInData, error } = await supabase.auth.signInWithPassword({
-        email,
-        password: data.password,
-      });
-      if (error) throw new Error(error.message);
-      const userId = signInData.user?.id;
-      if (!userId) throw new Error('Không thể xác thực tài khoản quản trị');
-      const profile = await fetchProfileByUserId(userId);
-      if (!profile) throw new Error('Không thể tải hồ sơ quản trị');
-      if (profile.role !== 'admin' && profile.role !== 'editor') {
-        await supabase.auth.signOut();
-        throw new Error('Tài khoản không có quyền truy cập CMS');
-      }
+    mutationFn: async ({ data }: { data: { identifier: string; password: string; captchaToken?: string | null } }) => {
+      const genericLoginError = 'Thông tin đăng nhập không hợp lệ.';
+
       try {
-        await supabase.rpc('log_auth_event', {
-          p_action: 'login',
-          p_description: `Đăng nhập CMS: ${profile.email}`,
-          p_entity_type: 'auth',
-          p_entity_id: signInData.user?.id ?? null,
-          p_details: { source: 'frontend' },
-        });
-      } catch {
-        // Không chặn đăng nhập nếu ghi nhật ký lỗi
+        const email = await resolveLoginEmail(data.identifier);
+        const signInPayload: any = {
+          email,
+          password: data.password,
+        };
+
+        if (data.captchaToken) {
+          signInPayload.options = { captchaToken: data.captchaToken };
+        }
+
+        const { data: signInData, error } = await supabase.auth.signInWithPassword(signInPayload);
+        if (error) throw new Error(genericLoginError);
+
+        const userId = signInData.user?.id;
+        if (!userId) throw new Error(genericLoginError);
+
+        const profile = await fetchProfileByUserId(userId);
+        if (!profile || (profile.role !== 'admin' && profile.role !== 'editor')) {
+          await supabase.auth.signOut();
+          throw new Error(genericLoginError);
+        }
+
+        try {
+          await supabase.rpc('log_auth_event', {
+            p_action: 'login',
+            p_description: `Đăng nhập CMS: ${profile.email}`,
+            p_entity_type: 'auth',
+            p_entity_id: signInData.user?.id ?? null,
+            p_details: { source: 'frontend' },
+          });
+        } catch {
+          // Không chặn đăng nhập nếu ghi nhật ký lỗi
+        }
+
+        return profile;
+      } catch (error: any) {
+        await supabase.auth.signOut().catch(() => undefined);
+        if (error?.message === 'Vui lòng nhập email hoặc tên đăng nhập') {
+          throw error;
+        }
+        throw new Error(genericLoginError);
       }
-      return profile;
     },
     ...(options?.mutation || {}),
   });
@@ -1367,6 +1388,74 @@ export function useCmsUpdateUserRole(options?: MutationWrapper<any, { id: string
     mutationFn: async ({ id, data }) => {
       const result = await supabase.from('profiles').update({ role: data.role }).eq('id', id).select('id').single();
       return requireData(result.data, result.error);
+    },
+    ...(options?.mutation || {}),
+  });
+}
+
+function validateStrongCmsPassword(password: string) {
+  if (!password || password.length < 8) throw new Error('Mật khẩu mới phải có ít nhất 8 ký tự');
+  if (!/[A-Z]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 chữ hoa');
+  if (!/[a-z]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 chữ thường');
+  if (!/[0-9]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 số');
+  if (!/[^A-Za-z0-9]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 ký tự đặc biệt');
+}
+
+export function useCmsChangeOwnPassword(
+  options?: MutationWrapper<any, { data: { currentPassword: string; password: string } }>
+) {
+  return useMutation({
+    mutationFn: async ({ data }) => {
+      const currentPassword = data.currentPassword?.trim();
+      const newPassword = data.password;
+
+      if (!currentPassword) throw new Error('Vui lòng nhập mật khẩu hiện tại');
+      validateStrongCmsPassword(newPassword);
+      if (currentPassword === newPassword) throw new Error('Mật khẩu mới không được trùng mật khẩu hiện tại');
+
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      const email = userData.user?.email;
+      if (userError || !email) throw new Error('Không xác định được tài khoản đang đăng nhập');
+
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+      if (verifyError) throw new Error('Mật khẩu hiện tại không đúng');
+
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) throw new Error(updateError.message);
+
+      const { error: markError } = await supabase.rpc('mark_cms_password_changed');
+      if (markError) {
+        throw new Error(`Đã đổi mật khẩu nhưng chưa cập nhật trạng thái mật khẩu tạm thời: ${markError.message}`);
+      }
+
+      return { ok: true };
+    },
+    ...(options?.mutation || {}),
+  });
+}
+
+export function useCmsUpdateUserProfile(options?: MutationWrapper<any, { id: string; data: { username: string; fullName: string; role: CmsRole; status: AccountStatus } }>) {
+  return useMutation({
+    mutationFn: async ({ id, data }) => {
+      const payload = {
+        username: data.username.trim().toLowerCase(),
+        full_name: data.fullName.trim(),
+        role: data.role,
+        status: data.status,
+      };
+
+      const result = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', id)
+        .select('id, username, email, full_name, role, status, created_at, last_login_at, must_change_password')
+        .single();
+
+      const updated = requireData(result.data, result.error);
+      return mapProfile(updated);
     },
     ...(options?.mutation || {}),
   });
