@@ -64,18 +64,18 @@ export default function MapPage() {
 
         <SectionHeading title="Mặt Bằng Tổng Thể" subtitle="Quy hoạch đồng bộ" />
         <div className="mb-16 flex justify-center">
-          <div className="relative w-full max-w-6xl border border-gray-200 bg-white p-3 luxury-shadow">
+          <div className="relative w-full max-w-5xl bg-white shadow-[0_18px_50px_rgba(15,23,42,0.10)]">
             <a
               href={localMasterPlan}
               target="_blank"
               rel="noreferrer"
               title="Mở sơ đồ mặt bằng ở kích thước đầy đủ"
-              className="absolute top-4 right-4 z-10 bg-white/95 backdrop-blur px-4 py-2 text-sm font-semibold text-primary shadow-lg flex items-center gap-2"
+              className="absolute top-4 right-4 z-10 bg-white/95 backdrop-blur px-4 py-2 text-sm font-semibold text-primary shadow-md flex items-center gap-2"
             >
               <MapPin className="w-4 h-4 text-accent" /> Sơ đồ phân khu chi tiết
             </a>
 
-            <div className="max-h-[82vh] overflow-auto bg-gray-50 flex justify-center items-start px-3 py-4">
+            <div className="max-h-[82vh] overflow-auto bg-white flex justify-center items-start px-2 py-3">
               <img
                 src={localMasterPlan}
                 alt="Sơ đồ mặt bằng tổng thể"

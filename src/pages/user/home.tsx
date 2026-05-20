@@ -2,7 +2,8 @@ import { PublicLayout } from "@/components/layout/public-layout";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { useListProducts, useListMedia, useProjectOverview } from "@/lib/api-client";
 import { Link } from "wouter";
-import { motion } from "framer-motion";
+import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Maximize, ArrowRight, ShieldCheck, TreePine, Droplets } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -54,7 +55,21 @@ export default function Home() {
   const featuredProducts = productsData?.products?.slice(0, 3) || [];
   const publicImages = mediaData?.media || [];
   const heroImage = project?.heroImageUrl || publicImages.find((m: any) => /hero|banner|phối cảnh/i.test(`${m.category} ${m.title}`))?.url || publicImages[0]?.url || `${import.meta.env.BASE_URL}images/hero-bg.png`;
-  const aboutImage = publicImages.find((m: any) => /mô hình|sa bàn|phối cảnh/i.test(`${m.category} ${m.title}`))?.url || `${import.meta.env.BASE_URL}images/about-model.png`;
+  const aboutSlides = useMemo(() => {
+    const preferred = publicImages.filter((m: any) =>
+      /mô hình|sa bàn|phối cảnh|tổng quan|cảnh quan|shophouse|liền kề|biệt thự|nhà phố/i.test(`${m.category || ""} ${m.title || ""}`)
+    );
+
+    const source = preferred.length ? preferred : publicImages;
+    const urls = source
+      .map((m: any) => m.url)
+      .filter(Boolean)
+      .filter((url: string, index: number, arr: string[]) => arr.indexOf(url) === index);
+
+    return urls.length ? urls : [`${import.meta.env.BASE_URL}images/about-model.png`];
+  }, [publicImages]);
+  const [aboutSlideIndex, setAboutSlideIndex] = useState(0);
+  const aboutImage = aboutSlides[aboutSlideIndex % aboutSlides.length];
   const amenityImages = publicImages.filter((m: any) => /tiện ích|cảnh quan|công viên|clubhouse|bể bơi/i.test(`${m.category} ${m.title}`));
   const stats = project?.overviewStats?.length ? project.overviewStats : [
     { label: "Tổng diện tích", value: fmtArea(project?.totalAreaHa, project?.totalAreaM2) },
@@ -67,6 +82,16 @@ export default function Home() {
     { name: "Công viên trung tâm", desc: "Không gian xanh nội khu" },
     { name: "Bể bơi & Clubhouse", desc: "Tiện ích cư dân" },
   ];
+
+  useEffect(() => {
+    if (aboutSlides.length <= 1) return;
+
+    const timer = window.setInterval(() => {
+      setAboutSlideIndex((current) => (current + 1) % aboutSlides.length);
+    }, 4200);
+
+    return () => window.clearInterval(timer);
+  }, [aboutSlides.length]);
 
   return (
     <PublicLayout>
@@ -113,7 +138,36 @@ export default function Home() {
           <div className="flex flex-col lg:flex-row items-center gap-16">
             <div className="lg:w-1/2 relative">
               <div className="absolute -inset-4 bg-accent/10 translate-x-4 translate-y-4" />
-              <img src={aboutImage} alt={project?.name || "ERO Riverside"} className="relative z-10 w-full h-auto object-cover luxury-shadow" />
+              <div className="relative z-10 aspect-[4/3] overflow-hidden bg-gray-100 luxury-shadow">
+                <AnimatePresence mode="wait">
+                  <motion.img
+                    key={aboutImage}
+                    src={aboutImage}
+                    alt={project?.name || "ERO Riverside"}
+                    initial={{ opacity: 0, scale: 1.04 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.7, ease: "easeOut" }}
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                </AnimatePresence>
+
+                {aboutSlides.length > 1 ? (
+                  <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 gap-2 rounded-full bg-white/80 px-3 py-2 backdrop-blur-sm">
+                    {aboutSlides.slice(0, 8).map((_, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        aria-label={`Chuyển tới ảnh ${index + 1}`}
+                        onClick={() => setAboutSlideIndex(index)}
+                        className={`h-2.5 w-2.5 rounded-full transition-all ${
+                          index === aboutSlideIndex % aboutSlides.length ? "w-6 bg-accent" : "bg-primary/30 hover:bg-primary/50"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="lg:w-1/2">
               <SectionHeading title="Tầm Nhìn & Vị Thế" subtitle="Tổng quan dự án" align="left" />
