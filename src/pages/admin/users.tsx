@@ -243,7 +243,7 @@ export default function AdminUsers() {
         <>
           <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <p className="text-sm text-gray-500">
-              Admin có thể tạo, sửa thông tin và khóa/mở khóa tài khoản. Mỗi người dùng tự đổi mật khẩu bằng nút phía trên.
+              Admin có thể tạo, sửa thông tin và khóa/mở khóa tài khoản.
             </p>
             {!showCreateForm && (
               <Button
