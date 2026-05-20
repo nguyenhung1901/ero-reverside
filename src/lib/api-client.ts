@@ -4,6 +4,7 @@ import { supabase, ERO_PROJECT_ID, ERO_PROJECT_SLUG } from '@/lib/supabase';
 
 const PASSWORD_POLICY_MESSAGE = 'Mật khẩu phải có ít nhất 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.';
 const TEMP_PASSWORD_POLICY_MESSAGE = 'Mật khẩu tạm thời phải có ít nhất 8 ký tự. Người dùng sẽ bắt buộc đổi sang mật khẩu mạnh khi đăng nhập lần đầu.';
+const GENERIC_LOGIN_ERROR = 'Thông tin đăng nhập không hợp lệ.';
 
 function getPasswordPolicyError(password: string, label = 'Mật khẩu') {
   if (!password || password.length < 8) return `${label} phải có ít nhất 8 ký tự`;
@@ -218,10 +219,9 @@ async function resolveLoginEmail(identifier: string) {
     p_identifier: normalized,
   });
 
-  if (error) {
-    throw new Error('Chưa bật đăng nhập bằng tên đăng nhập. Hãy chạy file supabase/sql-patches/enable-username-login.sql trên Supabase SQL Editor.');
-  }
-  if (!data) throw new Error('Tên đăng nhập không tồn tại hoặc tài khoản đã bị khóa');
+  // Không tiết lộ username có tồn tại hay tài khoản có bị khóa hay không.
+  // Mọi trường hợp không resolve được đều trả cùng một thông báo chung.
+  if (error || !data) throw new Error(GENERIC_LOGIN_ERROR);
   return String(data);
 }
 
@@ -853,14 +853,14 @@ export function useAdminLogin(options?: MutationWrapper<any, { data: { identifie
         password: data.password,
         options: data.captchaToken ? { captchaToken: data.captchaToken } : undefined,
       });
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(GENERIC_LOGIN_ERROR);
       const userId = signInData.user?.id;
-      if (!userId) throw new Error('Không thể xác thực tài khoản quản trị');
+      if (!userId) throw new Error(GENERIC_LOGIN_ERROR);
       const profile = await fetchProfileByUserId(userId);
-      if (!profile) throw new Error('Không thể tải hồ sơ quản trị');
+      if (!profile) throw new Error(GENERIC_LOGIN_ERROR);
       if (profile.role !== 'admin' && profile.role !== 'editor') {
         await supabase.auth.signOut();
-        throw new Error('Tài khoản không có quyền truy cập CMS');
+        throw new Error(GENERIC_LOGIN_ERROR);
       }
       try {
         await supabase.rpc('log_auth_event', {
