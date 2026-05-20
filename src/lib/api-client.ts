@@ -1,6 +1,18 @@
 import { useMutation, useQuery, type UseMutationOptions } from '@tanstack/react-query';
 import { supabase, ERO_PROJECT_ID, ERO_PROJECT_SLUG } from '@/lib/supabase';
 
+
+const PASSWORD_POLICY_MESSAGE = 'Mật khẩu phải có ít nhất 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.';
+
+function getPasswordPolicyError(password: string, label = 'Mật khẩu') {
+  if (!password || password.length < 8) return `${label} phải có ít nhất 8 ký tự`;
+  if (!/[A-Z]/.test(password)) return `${label} phải có ít nhất 1 chữ hoa`;
+  if (!/[a-z]/.test(password)) return `${label} phải có ít nhất 1 chữ thường`;
+  if (!/[0-9]/.test(password)) return `${label} phải có ít nhất 1 số`;
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(password)) return `${label} phải có ít nhất 1 ký tự đặc biệt`;
+  return null;
+}
+
 type MutationWrapper<TData, TVariables> = {
   mutation?: Omit<UseMutationOptions<TData, Error, TVariables, unknown>, 'mutationFn'>;
 };
@@ -1307,6 +1319,9 @@ export function useCmsUpdateUserStatus(options?: MutationWrapper<any, { id: stri
 export function useCmsCreateUser(options?: MutationWrapper<any, { data: { email: string; password: string; username: string; fullName: string; role: CmsRole } }>) {
   return useMutation({
     mutationFn: async ({ data }) => {
+      const passwordError = getPasswordPolicyError(data.password, 'Mật khẩu ban đầu');
+      if (passwordError) throw new Error(`${passwordError}. ${PASSWORD_POLICY_MESSAGE}`);
+
       const { data: result, error } = await supabase.functions.invoke('create-cms-user', {
         body: {
           email: data.email,
@@ -1329,6 +1344,68 @@ export function useCmsUpdateUserRole(options?: MutationWrapper<any, { id: string
     mutationFn: async ({ id, data }) => {
       const result = await supabase.from('profiles').update({ role: data.role }).eq('id', id).select('id').single();
       return requireData(result.data, result.error);
+    },
+    ...(options?.mutation || {}),
+  });
+}
+
+export function useCmsUpdateUserProfile(options?: MutationWrapper<any, { id: string; data: { username: string; fullName: string; role: CmsRole; status: AccountStatus } }>) {
+  return useMutation({
+    mutationFn: async ({ id, data }) => {
+      const payload = {
+        username: data.username,
+        full_name: data.fullName,
+        role: data.role,
+        status: data.status,
+      };
+      const result = await supabase.from('profiles').update(payload).eq('id', id).select('id').single();
+      return requireData(result.data, result.error);
+    },
+    ...(options?.mutation || {}),
+  });
+}
+
+export function useCmsChangeOwnPassword(options?: MutationWrapper<any, { data: { currentPassword: string; password: string } }>) {
+  return useMutation({
+    mutationFn: async ({ data }) => {
+      if (!data.currentPassword) {
+        throw new Error('Vui lòng nhập mật khẩu hiện tại');
+      }
+      const passwordError = getPasswordPolicyError(data.password, 'Mật khẩu mới');
+      if (passwordError) {
+        throw new Error(`${passwordError}. ${PASSWORD_POLICY_MESSAGE}`);
+      }
+      if (data.currentPassword === data.password) {
+        throw new Error('Mật khẩu mới không được trùng mật khẩu hiện tại');
+      }
+
+      const currentUser = await supabase.auth.getUser();
+      const email = currentUser.data.user?.email;
+      if (currentUser.error || !email) {
+        throw new Error('Không xác định được tài khoản đang đăng nhập');
+      }
+
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email,
+        password: data.currentPassword,
+      });
+      if (verifyError) {
+        throw new Error('Mật khẩu hiện tại không đúng');
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: data.password });
+      if (error) throw new Error(error.message);
+
+      const { error: logError } = await supabase.rpc('log_auth_event', {
+        p_action: 'change_password',
+        p_description: 'CMS user changed own password',
+        p_entity_type: 'auth',
+        p_entity_id: null,
+        p_details: {},
+      });
+      if (logError) console.warn('Không thể ghi log đổi mật khẩu:', logError.message);
+
+      return { ok: true };
     },
     ...(options?.mutation || {}),
   });
