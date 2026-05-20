@@ -835,6 +835,9 @@ export function useGetAdminMe() {
   return useQuery({
     queryKey: qk.me,
     queryFn: getCurrentProfile,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -1309,8 +1312,17 @@ export function useCmsListUsers() {
 export function useCmsUpdateUserStatus(options?: MutationWrapper<any, { id: string; data: { status: AccountStatus } }>) {
   return useMutation({
     mutationFn: async ({ id, data }) => {
-      const result = await supabase.from('profiles').update({ status: data.status }).eq('id', id).select('id').single();
-      return requireData(result.data, result.error);
+      const result = await supabase
+        .from('profiles')
+        .update({ status: data.status })
+        .eq('id', id)
+        .select('id, status')
+        .single();
+      const row = requireData(result.data, result.error);
+      if (row.status !== data.status) {
+        throw new Error('Trạng thái tài khoản chưa được lưu đúng trong cơ sở dữ liệu');
+      }
+      return row;
     },
     ...(options?.mutation || {}),
   });
@@ -1342,8 +1354,17 @@ export function useCmsCreateUser(options?: MutationWrapper<any, { data: { email:
 export function useCmsUpdateUserRole(options?: MutationWrapper<any, { id: string; data: { role: CmsRole } }>) {
   return useMutation({
     mutationFn: async ({ id, data }) => {
-      const result = await supabase.from('profiles').update({ role: data.role }).eq('id', id).select('id').single();
-      return requireData(result.data, result.error);
+      const result = await supabase
+        .from('profiles')
+        .update({ role: data.role })
+        .eq('id', id)
+        .select('id, role')
+        .single();
+      const row = requireData(result.data, result.error);
+      if (row.role !== data.role) {
+        throw new Error('Vai trò tài khoản chưa được lưu đúng trong cơ sở dữ liệu');
+      }
+      return row;
     },
     ...(options?.mutation || {}),
   });
@@ -1358,8 +1379,17 @@ export function useCmsUpdateUserProfile(options?: MutationWrapper<any, { id: str
         role: data.role,
         status: data.status,
       };
-      const result = await supabase.from('profiles').update(payload).eq('id', id).select('id').single();
-      return requireData(result.data, result.error);
+      const result = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', id)
+        .select('id, username, full_name, role, status')
+        .single();
+      const row = requireData(result.data, result.error);
+      if (row.role !== data.role || row.status !== data.status) {
+        throw new Error('Vai trò hoặc trạng thái tài khoản chưa được lưu đúng trong cơ sở dữ liệu');
+      }
+      return row;
     },
     ...(options?.mutation || {}),
   });

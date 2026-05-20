@@ -89,6 +89,8 @@ export default function AdminUsers() {
   const refreshUsers = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/v1/cms/users"] });
     queryClient.invalidateQueries({ queryKey: ["/api/v1/admin/me"] });
+    queryClient.refetchQueries({ queryKey: ["/api/v1/cms/users"] });
+    queryClient.refetchQueries({ queryKey: ["/api/v1/admin/me"] });
   };
 
   const statusMut = useCmsUpdateUserStatus({
@@ -224,10 +226,7 @@ export default function AdminUsers() {
           <p className="text-sm text-gray-500 mt-1">Tổng số: {userCountLabel}</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button type="button" variant="outline" className="rounded-none" onClick={refreshUsers}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Tải lại
-          </Button>
+          
           <Button type="button" variant="outline" className="rounded-none" onClick={() => setShowOwnPasswordDialog(true)}>
             <KeyRound className="w-4 h-4 mr-2" />
             Đổi mật khẩu của tôi
