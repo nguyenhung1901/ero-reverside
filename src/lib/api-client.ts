@@ -208,7 +208,7 @@ async function resolveLoginEmail(identifier: string) {
   if (error) {
     throw new Error('Chưa bật đăng nhập bằng tên đăng nhập. Hãy chạy file supabase/sql-patches/enable-username-login.sql trên Supabase SQL Editor.');
   }
-  if (!data) throw new Error('Thông tin đăng nhập không hợp lệ.');
+  if (!data) throw new Error('Tên đăng nhập không tồn tại hoặc tài khoản đã bị khóa');
   return String(data);
 }
 
@@ -470,7 +470,7 @@ function mapProfile(row: any): Profile {
     status: row.status,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
-    mustChangePassword: Boolean(row.must_change_password),
+    mustChangePassword: row.must_change_password ?? false,
   };
 }
 
@@ -709,6 +709,16 @@ async function fetchMedia(params?: any) {
   if (params?.publicOnly) query = query.eq('visibility', 'public');
   if (params?.type) query = query.eq('media_type', params.type);
 
+  const page = Number(params?.page || 0);
+  const pageSize = Number(params?.pageSize || 0);
+  if (page > 0 && pageSize > 0) {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    query = query.range(from, to);
+  } else if (params?.limit) {
+    query = query.limit(Number(params.limit));
+  }
+
   const { data, error, count } = await query;
   if (error) throw new Error(error.message);
   const media = await Promise.all((data || []).map(resolveMediaRow));
@@ -831,31 +841,22 @@ export function useGetAdminMe() {
 export function useAdminLogin(options?: MutationWrapper<any, { data: { identifier: string; password: string; captchaToken?: string | null } }>) {
   return useMutation({
     mutationFn: async ({ data }: { data: { identifier: string; password: string; captchaToken?: string | null } }) => {
-      const genericLoginError = 'Thông tin đăng nhập không hợp lệ.';
-
       try {
         const email = await resolveLoginEmail(data.identifier);
-        const signInPayload: any = {
+        const { data: signInData, error } = await supabase.auth.signInWithPassword({
           email,
           password: data.password,
-        };
-
-        if (data.captchaToken) {
-          signInPayload.options = { captchaToken: data.captchaToken };
-        }
-
-        const { data: signInData, error } = await supabase.auth.signInWithPassword(signInPayload);
-        if (error) throw new Error(genericLoginError);
-
+          options: data.captchaToken ? { captchaToken: data.captchaToken } : undefined,
+        });
+        if (error) throw error;
         const userId = signInData.user?.id;
-        if (!userId) throw new Error(genericLoginError);
-
+        if (!userId) throw new Error('auth_failed');
         const profile = await fetchProfileByUserId(userId);
-        if (!profile || (profile.role !== 'admin' && profile.role !== 'editor')) {
+        if (!profile) throw new Error('auth_failed');
+        if (profile.role !== 'admin' && profile.role !== 'editor') {
           await supabase.auth.signOut();
-          throw new Error(genericLoginError);
+          throw new Error('auth_failed');
         }
-
         try {
           await supabase.rpc('log_auth_event', {
             p_action: 'login',
@@ -867,14 +868,10 @@ export function useAdminLogin(options?: MutationWrapper<any, { data: { identifie
         } catch {
           // Không chặn đăng nhập nếu ghi nhật ký lỗi
         }
-
         return profile;
-      } catch (error: any) {
+      } catch {
         await supabase.auth.signOut().catch(() => undefined);
-        if (error?.message === 'Vui lòng nhập email hoặc tên đăng nhập') {
-          throw error;
-        }
-        throw new Error(genericLoginError);
+        throw new Error('Thông tin đăng nhập không hợp lệ.');
       }
     },
     ...(options?.mutation || {}),
@@ -1231,54 +1228,16 @@ export function useCmsDeleteMedia(options?: MutationWrapper<any, { id: number }>
 }
 
 
-const VALID_LEAD_NEEDS = ['Mua để ở', 'Đầu tư', 'Tìm hiểu thêm'] as const;
-
-function normalizeLeadText(value: string) {
-  return value.trim().replace(/\s+/g, ' ');
-}
-
-function normalizeLeadPhone(value: string) {
-  return value.trim().replace(/[^\d+]/g, '');
-}
-
-function validateLeadPayload(data: { fullName: string; phone: string; email: string; need: string; note?: string }) {
-  const fullName = normalizeLeadText(data.fullName || '');
-  const phone = normalizeLeadPhone(data.phone || '');
-  const email = normalizeLeadText(data.email || '').toLowerCase();
-  const need = normalizeLeadText(data.need || '');
-  const note = data.note ? normalizeLeadText(data.note) : '';
-  const phoneDigits = phone.replace(/\D/g, '');
-
-  if (fullName.length < 2 || fullName.length > 80) {
-    throw new Error('Họ tên phải có từ 2 đến 80 ký tự.');
-  }
-  if (phone.length < 9 || phone.length > 20 || phoneDigits.length < 9 || phoneDigits.length > 15) {
-    throw new Error('Số điện thoại không hợp lệ.');
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    throw new Error('Email không hợp lệ.');
-  }
-  if (!(VALID_LEAD_NEEDS as readonly string[]).includes(need)) {
-    throw new Error('Nhu cầu không hợp lệ.');
-  }
-  if (note.length > 500) {
-    throw new Error('Ghi chú không được vượt quá 500 ký tự.');
-  }
-
-  return { fullName, phone, email, need, note };
-}
-
 export function useCreateRegistration(options?: MutationWrapper<any, { data: { fullName: string; phone: string; email: string; need: string; note?: string } }>) {
   return useMutation({
     mutationFn: async ({ data }) => {
-      const clean = validateLeadPayload(data);
       const payload = {
         project_id: ERO_PROJECT_ID,
-        full_name: clean.fullName,
-        phone: clean.phone,
-        email: clean.email,
-        need: clean.need,
-        note: clean.note || null,
+        full_name: data.fullName,
+        phone: data.phone,
+        email: data.email,
+        need: data.need,
+        note: data.note || null,
         source_channel: 'website',
       };
       const { error } = await supabase.from('leads').insert(payload);
@@ -1356,8 +1315,13 @@ export function useCmsListUsers() {
 export function useCmsUpdateUserStatus(options?: MutationWrapper<any, { id: string; data: { status: AccountStatus } }>) {
   return useMutation({
     mutationFn: async ({ id, data }) => {
-      const result = await supabase.from('profiles').update({ status: data.status }).eq('id', id).select('id').single();
-      return requireData(result.data, result.error);
+      const result = await supabase
+        .from('profiles')
+        .update({ status: data.status, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('id, username, email, full_name, role, status, created_at, last_login_at, must_change_password')
+        .single();
+      return mapProfile(requireData(result.data, result.error));
     },
     ...(options?.mutation || {}),
   });
@@ -1386,31 +1350,31 @@ export function useCmsCreateUser(options?: MutationWrapper<any, { data: { email:
 export function useCmsUpdateUserRole(options?: MutationWrapper<any, { id: string; data: { role: CmsRole } }>) {
   return useMutation({
     mutationFn: async ({ id, data }) => {
-      const result = await supabase.from('profiles').update({ role: data.role }).eq('id', id).select('id').single();
-      return requireData(result.data, result.error);
+      const result = await supabase
+        .from('profiles')
+        .update({ role: data.role, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('id, username, email, full_name, role, status, created_at, last_login_at, must_change_password')
+        .single();
+      return mapProfile(requireData(result.data, result.error));
     },
     ...(options?.mutation || {}),
   });
 }
 
-function validateStrongCmsPassword(password: string) {
-  if (!password || password.length < 8) throw new Error('Mật khẩu mới phải có ít nhất 8 ký tự');
-  if (!/[A-Z]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 chữ hoa');
-  if (!/[a-z]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 chữ thường');
-  if (!/[0-9]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 số');
-  if (!/[^A-Za-z0-9]/.test(password)) throw new Error('Mật khẩu mới phải có ít nhất 1 ký tự đặc biệt');
-}
 
-export function useCmsChangeOwnPassword(
-  options?: MutationWrapper<any, { data: { currentPassword: string; password: string } }>
-) {
+export function useCmsChangeOwnPassword(options?: MutationWrapper<any, { data: { currentPassword: string; password: string } }>) {
   return useMutation({
     mutationFn: async ({ data }) => {
       const currentPassword = data.currentPassword?.trim();
       const newPassword = data.password;
 
       if (!currentPassword) throw new Error('Vui lòng nhập mật khẩu hiện tại');
-      validateStrongCmsPassword(newPassword);
+      if (!newPassword || newPassword.length < 8) throw new Error('Mật khẩu mới phải có ít nhất 8 ký tự');
+      if (!/[A-Z]/.test(newPassword)) throw new Error('Mật khẩu mới phải có ít nhất 1 chữ hoa');
+      if (!/[a-z]/.test(newPassword)) throw new Error('Mật khẩu mới phải có ít nhất 1 chữ thường');
+      if (!/[0-9]/.test(newPassword)) throw new Error('Mật khẩu mới phải có ít nhất 1 số');
+      if (!/[^A-Za-z0-9]/.test(newPassword)) throw new Error('Mật khẩu mới phải có ít nhất 1 ký tự đặc biệt');
       if (currentPassword === newPassword) throw new Error('Mật khẩu mới không được trùng mật khẩu hiện tại');
 
       const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -1437,15 +1401,17 @@ export function useCmsChangeOwnPassword(
   });
 }
 
-export function useCmsUpdateUserProfile(options?: MutationWrapper<any, { id: string; data: { username: string; fullName: string; role: CmsRole; status: AccountStatus } }>) {
+export function useCmsUpdateUserProfile(options?: MutationWrapper<any, { id: string; data: { username?: string; fullName?: string; role?: CmsRole; status?: AccountStatus } }>) {
   return useMutation({
     mutationFn: async ({ id, data }) => {
-      const payload = {
-        username: data.username.trim().toLowerCase(),
-        full_name: data.fullName.trim(),
-        role: data.role,
-        status: data.status,
-      };
+      const payload: any = {};
+      if (data.username !== undefined) payload.username = data.username.trim();
+      if (data.fullName !== undefined) payload.full_name = data.fullName.trim() || null;
+      if (data.role !== undefined) payload.role = data.role;
+      if (data.status !== undefined) payload.status = data.status;
+
+      if (!Object.keys(payload).length) throw new Error('Không có thông tin cần cập nhật');
+      payload.updated_at = new Date().toISOString();
 
       const result = await supabase
         .from('profiles')
@@ -1455,6 +1421,8 @@ export function useCmsUpdateUserProfile(options?: MutationWrapper<any, { id: str
         .single();
 
       const updated = requireData(result.data, result.error);
+      if (data.role !== undefined && updated.role !== data.role) throw new Error('Vai trò chưa được cập nhật đúng trong cơ sở dữ liệu');
+      if (data.status !== undefined && updated.status !== data.status) throw new Error('Trạng thái chưa được cập nhật đúng trong cơ sở dữ liệu');
       return mapProfile(updated);
     },
     ...(options?.mutation || {}),
