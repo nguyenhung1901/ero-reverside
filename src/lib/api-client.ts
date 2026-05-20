@@ -844,13 +844,14 @@ export function useGetAdminMe() {
   });
 }
 
-export function useAdminLogin(options?: MutationWrapper<any, { data: { identifier: string; password: string } }>) {
+export function useAdminLogin(options?: MutationWrapper<any, { data: { identifier: string; password: string; captchaToken?: string | null } }>) {
   return useMutation({
-    mutationFn: async ({ data }: { data: { identifier: string; password: string } }) => {
+    mutationFn: async ({ data }: { data: { identifier: string; password: string; captchaToken?: string | null } }) => {
       const email = await resolveLoginEmail(data.identifier);
       const { data: signInData, error } = await supabase.auth.signInWithPassword({
         email,
         password: data.password,
+        options: data.captchaToken ? { captchaToken: data.captchaToken } : undefined,
       });
       if (error) throw new Error(error.message);
       const userId = signInData.user?.id;
