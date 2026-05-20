@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -11,8 +11,9 @@ import {
   UserCog,
   Tag
 } from "lucide-react";
-import { useGetAdminMe, useAdminLogout } from "@/lib/api-client";
+import { useGetAdminMe, useAdminLogout, useCmsChangeOwnPassword } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
@@ -26,6 +27,12 @@ export function AdminLayout({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const lastActivityRef = useRef(Date.now());
   const timedOutRef = useRef(false);
+  const [forcePasswordForm, setForcePasswordForm] = useState({
+    currentPassword: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [forcePasswordError, setForcePasswordError] = useState("");
 
   const logoutMutation = useAdminLogout({
     mutation: {
@@ -35,6 +42,21 @@ export function AdminLayout({ children }: { children: ReactNode }) {
         setLocation("/admin/login");
       }
     }
+  });
+
+  const changeOwnPasswordMutation = useCmsChangeOwnPassword({
+    mutation: {
+      onSuccess: async () => {
+        setForcePasswordForm({ currentPassword: "", password: "", confirmPassword: "" });
+        setForcePasswordError("");
+        toast({ title: "Đã đổi mật khẩu", description: "Bạn có thể tiếp tục sử dụng hệ thống quản trị." });
+        await queryClient.invalidateQueries({ queryKey: ["/api/v1/admin/me"] });
+        await queryClient.refetchQueries({ queryKey: ["/api/v1/admin/me"] });
+      },
+      onError: (error) => {
+        setForcePasswordError(error.message || "Không thể đổi mật khẩu");
+      },
+    },
   });
 
   const isCheckingAuth = isLoading || (!admin && isFetching);
@@ -77,6 +99,24 @@ export function AdminLayout({ children }: { children: ReactNode }) {
       window.clearInterval(timer);
     };
   }, [admin, logoutMutation, toast]);
+  const handleForceChangePassword = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setForcePasswordError("");
+    if (!forcePasswordForm.currentPassword) {
+      setForcePasswordError("Vui lòng nhập mật khẩu hiện tại");
+      return;
+    }
+    if (forcePasswordForm.password !== forcePasswordForm.confirmPassword) {
+      setForcePasswordError("Hai mật khẩu mới không khớp");
+      return;
+    }
+    changeOwnPasswordMutation.mutate({
+      data: {
+        currentPassword: forcePasswordForm.currentPassword,
+        password: forcePasswordForm.password,
+      },
+    });
+  };
 
   if (isCheckingAuth) {
     return (
@@ -88,6 +128,81 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 
   if (isError || !admin) {
     return null;
+  }
+
+  if (admin.mustChangePassword) {
+    return (
+      <div className="min-h-screen bg-primary flex items-center justify-center p-4">
+        <div className="w-full max-w-lg bg-white p-8 shadow-2xl rounded-sm">
+          <div className="mb-8 text-center">
+            <img
+              src={`${import.meta.env.BASE_URL}images/logo.png`}
+              alt="ERO Riverside Logo"
+              className="h-14 w-14 mx-auto mb-4 object-contain"
+            />
+            <h1 className="font-display text-2xl font-bold text-primary uppercase tracking-widest">Đổi mật khẩu bắt buộc</h1>
+            <p className="mt-2 text-sm text-gray-600">
+              Tài khoản của bạn đang sử dụng mật khẩu tạm thời. Vui lòng đổi mật khẩu trước khi tiếp tục sử dụng CMS.
+            </p>
+          </div>
+
+          <form onSubmit={handleForceChangePassword} className="space-y-5" autoComplete="off">
+            {forcePasswordError && (
+              <div className="border border-red-200 bg-red-50 p-3 text-sm text-red-600">{forcePasswordError}</div>
+            )}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-primary uppercase tracking-wider">Mật khẩu hiện tại</label>
+              <Input
+                type="password"
+                value={forcePasswordForm.currentPassword}
+                onChange={(event) => setForcePasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-primary uppercase tracking-wider">Mật khẩu mới</label>
+              <Input
+                type="password"
+                value={forcePasswordForm.password}
+                onChange={(event) => setForcePasswordForm((prev) => ({ ...prev, password: event.target.value }))}
+                autoComplete="new-password"
+                required
+              />
+              <p className="text-xs text-gray-500">Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-primary uppercase tracking-wider">Nhập lại mật khẩu mới</label>
+              <Input
+                type="password"
+                value={forcePasswordForm.confirmPassword}
+                onChange={(event) => setForcePasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                autoComplete="new-password"
+                required
+              />
+            </div>
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-none"
+                onClick={() => logoutMutation.mutate()}
+                disabled={logoutMutation.isPending || changeOwnPasswordMutation.isPending}
+              >
+                Đăng xuất
+              </Button>
+              <Button
+                type="submit"
+                className="rounded-none"
+                disabled={changeOwnPasswordMutation.isPending}
+              >
+                {changeOwnPasswordMutation.isPending ? "Đang đổi mật khẩu..." : "Đổi mật khẩu và tiếp tục"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
   }
 
   const isAdmin = admin.role === "admin";

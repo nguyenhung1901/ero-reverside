@@ -3,6 +3,7 @@ import { supabase, ERO_PROJECT_ID, ERO_PROJECT_SLUG } from '@/lib/supabase';
 
 
 const PASSWORD_POLICY_MESSAGE = 'Mật khẩu phải có ít nhất 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.';
+const TEMP_PASSWORD_POLICY_MESSAGE = 'Mật khẩu tạm thời phải có ít nhất 8 ký tự. Người dùng sẽ bắt buộc đổi sang mật khẩu mạnh khi đăng nhập lần đầu.';
 
 function getPasswordPolicyError(password: string, label = 'Mật khẩu') {
   if (!password || password.length < 8) return `${label} phải có ít nhất 8 ký tự`;
@@ -33,6 +34,7 @@ type Profile = {
   status: AccountStatus;
   createdAt: string;
   lastLoginAt?: string | null;
+  mustChangePassword?: boolean;
 };
 
 type Category = {
@@ -481,6 +483,7 @@ function mapProfile(row: any): Profile {
     status: row.status,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
+    mustChangePassword: row.must_change_password ?? false,
   };
 }
 
@@ -594,7 +597,7 @@ function mapDataExport(row: any): DataExport {
 async function fetchProfileByUserId(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, email, full_name, role, status, created_at, last_login_at')
+    .select('id, username, email, full_name, role, status, created_at, last_login_at, must_change_password')
     .eq('id', userId)
     .maybeSingle();
 
@@ -748,7 +751,7 @@ async function fetchLeads(params?: any) {
 async function fetchUsers() {
   const { data, error, count } = await supabase
     .from('profiles')
-    .select('id, username, email, full_name, role, status, created_at, last_login_at', { count: 'exact' })
+    .select('id, username, email, full_name, role, status, created_at, last_login_at, must_change_password', { count: 'exact' })
     .order('created_at', { ascending: true });
 
   if (error) throw new Error(error.message);
@@ -1331,8 +1334,9 @@ export function useCmsUpdateUserStatus(options?: MutationWrapper<any, { id: stri
 export function useCmsCreateUser(options?: MutationWrapper<any, { data: { email: string; password: string; username: string; fullName: string; role: CmsRole } }>) {
   return useMutation({
     mutationFn: async ({ data }) => {
-      const passwordError = getPasswordPolicyError(data.password, 'Mật khẩu ban đầu');
-      if (passwordError) throw new Error(`${passwordError}. ${PASSWORD_POLICY_MESSAGE}`);
+      if (!data.password || data.password.length < 8) {
+        throw new Error(TEMP_PASSWORD_POLICY_MESSAGE);
+      }
 
       const { data: result, error } = await supabase.functions.invoke('create-cms-user', {
         body: {
@@ -1341,10 +1345,21 @@ export function useCmsCreateUser(options?: MutationWrapper<any, { data: { email:
           username: data.username,
           fullName: data.fullName,
           role: data.role,
+          mustChangePassword: true,
         },
       });
       if (error) throw new Error(error.message || 'Không thể tạo tài khoản CMS');
       if ((result as any)?.error) throw new Error((result as any).error);
+
+      const normalizedEmail = data.email.trim().toLowerCase();
+      const { error: markError } = await supabase
+        .from('profiles')
+        .update({ must_change_password: true })
+        .eq('email', normalizedEmail);
+      if (markError) {
+        throw new Error(`Tài khoản đã được tạo nhưng chưa gắn cờ bắt buộc đổi mật khẩu: ${markError.message}`);
+      }
+
       return result;
     },
     ...(options?.mutation || {}),
@@ -1426,14 +1441,10 @@ export function useCmsChangeOwnPassword(options?: MutationWrapper<any, { data: {
       const { error } = await supabase.auth.updateUser({ password: data.password });
       if (error) throw new Error(error.message);
 
-      const { error: logError } = await supabase.rpc('log_auth_event', {
-        p_action: 'change_password',
-        p_description: 'CMS user changed own password',
-        p_entity_type: 'auth',
-        p_entity_id: null,
-        p_details: {},
-      });
-      if (logError) console.warn('Không thể ghi log đổi mật khẩu:', logError.message);
+      const { error: markError } = await supabase.rpc('mark_cms_password_changed');
+      if (markError) {
+        throw new Error(`Đã đổi mật khẩu nhưng chưa cập nhật trạng thái mật khẩu tạm thời: ${markError.message}`);
+      }
 
       return { ok: true };
     },

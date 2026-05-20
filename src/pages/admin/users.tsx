@@ -30,9 +30,11 @@ type UserRow = {
   status: AccountStatus;
   createdAt: string;
   lastLoginAt?: string | null;
+  mustChangePassword?: boolean;
 };
 
 const PASSWORD_POLICY_TEXT = "Mật khẩu tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.";
+const TEMP_PASSWORD_POLICY_TEXT = "Mật khẩu tạm thời chỉ cần tối thiểu 8 ký tự. Người dùng sẽ bắt buộc đổi sang mật khẩu mạnh khi đăng nhập lần đầu.";
 
 function getPasswordPolicyError(password: string, label = "Mật khẩu") {
   if (!password || password.length < 8) return `${label} phải có ít nhất 8 ký tự`;
@@ -111,7 +113,7 @@ export default function AdminUsers() {
         setForm(emptyCreateForm);
         setShowCreateForm(false);
         refreshUsers();
-        toast({ title: "Đã tạo tài khoản CMS mới" });
+        toast({ title: "Đã tạo tài khoản CMS mới", description: "Tài khoản mới sẽ phải đổi mật khẩu ở lần đăng nhập đầu tiên." });
       },
       onError: (error) => {
         toast({ title: "Không thể tạo tài khoản mới", description: error.message, variant: "destructive" });
@@ -162,9 +164,8 @@ export default function AdminUsers() {
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
-    const passwordError = getPasswordPolicyError(form.password, "Mật khẩu ban đầu");
-    if (passwordError) {
-      toast({ title: passwordError, description: PASSWORD_POLICY_TEXT, variant: "destructive" });
+    if (!form.password || form.password.length < 8) {
+      toast({ title: "Mật khẩu tạm thời phải có ít nhất 8 ký tự", description: TEMP_PASSWORD_POLICY_TEXT, variant: "destructive" });
       return;
     }
     createMut.mutate({ data: form });
@@ -287,9 +288,9 @@ export default function AdminUsers() {
                     onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
                     required
                     minLength={8}
-                    title={PASSWORD_POLICY_TEXT}
+                    title={TEMP_PASSWORD_POLICY_TEXT}
                   />
-                  <p className="mt-1 text-xs text-gray-500">{PASSWORD_POLICY_TEXT}</p>
+                  <p className="mt-1 text-xs text-gray-500">Mật khẩu tạm thời tối thiểu 8 ký tự.</p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">Vai trò</label>
@@ -324,6 +325,7 @@ export default function AdminUsers() {
                   <TableHead>Email</TableHead>
                   <TableHead>Vai trò</TableHead>
                   <TableHead>Trạng thái</TableHead>
+                  <TableHead>Mật khẩu</TableHead>
                   <TableHead>Lần đăng nhập cuối</TableHead>
                   <TableHead>Ngày tạo</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
@@ -331,7 +333,7 @@ export default function AdminUsers() {
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={8} className="text-center py-8">Đang tải...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center py-8">Đang tải...</TableCell></TableRow>
                 ) : data?.users?.length ? data.users.map((user: UserRow) => {
                   const isSelf = me?.id === user.id;
                   return (
@@ -346,6 +348,13 @@ export default function AdminUsers() {
                         <span className={`text-xs font-bold ${user.status === "active" ? "text-green-600" : "text-red-500"}`}>
                           {statusLabel(user.status)}
                         </span>
+                      </TableCell>
+                      <TableCell>
+                        {user.mustChangePassword ? (
+                          <span className="text-xs font-semibold text-amber-700">Cần đổi</span>
+                        ) : (
+                          <span className="text-xs text-gray-500">Đã đổi</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs text-gray-500 whitespace-nowrap">
                         {user.lastLoginAt ? format(new Date(user.lastLoginAt), "dd/MM/yyyy HH:mm") : "Chưa đăng nhập"}
@@ -375,7 +384,7 @@ export default function AdminUsers() {
                     </TableRow>
                   );
                 }) : (
-                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-sm text-gray-500">Chưa có tài khoản CMS.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-sm text-gray-500">Chưa có tài khoản CMS.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
